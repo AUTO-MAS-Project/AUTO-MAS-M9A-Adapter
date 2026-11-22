@@ -11,7 +11,7 @@
 
 X 锁照旧直接 ``try_lock_x()``，不走 ``lock_script_config``；拿到锁、确认有可运行账号后照通用 MFW 调 L2 挂的
 ``after_config_lock``（选定游戏会话、复查预下载），账号循环里再按账号选定、跑完交回账号覆盖的目标。
-项目会话、运行池路由与自检、归档、遥测、通知正文都调 ``MaaFW/tools/embedded`` 里的叶子；读写配置一律经
+项目会话、运行池路由与自检、归档、遥测、通知正文都调积木与共用库（``maafw_adapter_kit``）里的叶子；读写配置一律经
 ``config_view``。账号流程模块经 runner 包 import maa（导入即打开 DLL），只在账号开跑前延迟导入。
 """
 
@@ -44,14 +44,14 @@ from auto_mas_core.host.models_notification_report import (
 from auto_mas_core.host.models_schema import WSTaskNoticeData
 from auto_mas_core.host.models_task import ScriptItem, UserItem
 from auto_mas_core.host.utils import TASK_MODE_ZH, get_logger
+from maafw_adapter_kit.backup_archive import (
+    archive_mas_runtime_backup,
+    archive_native_backup,
+)
 from maafw_agent_env.host.runtime_check import describe_unusable_runtime
 from maafw_agent_env.host.runtime_route import resolve_runtime_pool_route
 from maafw_native.architecture import (
     describe_unsupported_architecture,
-)
-from maafw_project_update.glue.backup_archive import (
-    archive_mas_runtime_backup,
-    archive_native_backup,
 )
 from maafw_project_update.host import owners
 from maafw_project_update.host.owners import RecordPatch, write_managed_record
@@ -113,9 +113,9 @@ def _owner_name() -> str:
 
 
 def _current_game_session() -> Any:
-    """宿主 L2 选定的游戏会话（ContextVar）。SDK 没有门面，0.1.0 在函数里直接取宿主模块。"""
+    """宿主 L2 选定的游戏会话（ContextVar），经 SDK 出口 ``task_game`` 现取。"""
 
-    from app.task.game import current_game_session
+    from auto_mas_core.host.task_game import current_game_session
 
     return current_game_session
 

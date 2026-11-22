@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path as NativePath
 from typing import Annotated, ClassVar, Literal, Self, cast
 
-from auto_mas_core import ScriptEntry, UserEntry
+from auto_mas_core import ScriptAdapterPlugin, ScriptEntry, UserEntry
 from auto_mas_core.host.config import (
     ConfigCollection,
     ConfigEntry,
@@ -54,6 +54,10 @@ from auto_mas_core.host.models_config_shared import (
     none_as,
 )
 from pydantic import Field
+
+# 宿主带不带托管生命周期钩子：带时保存前整理与加密由钩子 ``prepare_user_update`` 做（``plugin.py``），
+# 不带时（旧宿主）仍由账号配置类的 ``update()`` 兜着。同一个 SDK 版本号两种宿主都有，只能按能力判断。
+_HOST_HAS_LIFECYCLE_HOOKS = hasattr(ScriptAdapterPlugin, "on_script_cloned")
 
 # M9A 内置的按任务时限：只放比全局默认（TaskTimeLimit 45 分钟）更长的任务，和全局相同的不写，
 # 否则用户调大全局时限后这几个任务仍卡在旧值
@@ -192,11 +196,16 @@ class M9AUserConfig(UserEntry):
     async def update(
         self, other: ConfigEntry, *, check_visibility: bool = True
     ) -> None:
-        """保存前先整理受管任务再加密（``config_hooks.prepare_m9a_user_update``），再走基类提交。
+        """旧宿主上：保存前先整理受管任务再加密（``config_hooks.prepare_m9a_user_update``），再走基类提交。
 
-        宿主不给插件类型绑配置回调，原来配置回调里的「保存前准备」挪到这里（照 MAA 专项的写法）。
+        宿主带托管生命周期钩子时这一步由钩子 ``prepare_user_update`` 在写入前做，这里直接走基类，
+        免得同一次保存整理、加密两遍。旧宿主不给插件类型绑配置回调，才挪到这里（照 MAA 专项的写法）。
         """
-        if not check_visibility or "Task" not in other.model_fields_set:
+        if (
+            _HOST_HAS_LIFECYCLE_HOOKS
+            or not check_visibility
+            or "Task" not in other.model_fields_set
+        ):
             await super().update(cast(Self, other), check_visibility=check_visibility)
             return
         from m9a_adapter.config_hooks import prepare_m9a_user_update

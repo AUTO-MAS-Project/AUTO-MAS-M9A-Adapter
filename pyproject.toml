@@ -14,6 +14,8 @@ authors = [{ name = "AUTO-MAS Team" }]
 keywords = ["auto-mas-plugin", "auto-mas-id:m9a_adapter"]
 # 三方依赖（httpx、numpy、opencv-python、pillow）宿主都有，不在这里写。
 # 0.1.0 直接 import 三块积木（拆分契约 §3.2 越界 S1），所以积木也写次版本上限。
+# 托管生命周期钩子、按配置判定游戏类型与桌面分身、ScriptSkip 这些 SDK 出口和旧宿主共用同一个 SDK 版本号
+# 5.9.0b1，下限提不上去；包里按能力判断（hasattr / 声明类字段），旧宿主上行为同 0.1.0。
 dependencies = [
     "auto-mas-core>=5.9.0b1,<6",
     "auto-mas-maafw-interface>=0.1.0,<0.2",
@@ -21,6 +23,7 @@ dependencies = [
     "auto-mas-maafw-agent-env>=0.1.0,<0.2",
     "auto-mas-maafw-runner>=0.1.0,<0.2",
     "auto-mas-maafw-project-update>=0.1.0,<0.2",
+    "auto-mas-maafw-adapter-kit>=0.1.0,<0.2",
 ]
 
 [project.urls]

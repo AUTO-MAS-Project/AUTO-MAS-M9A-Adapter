@@ -15,8 +15,8 @@
   首任务完成才算已登录；
 - 重试：重启客户端时清「已登录」，剔除本次运行已完成的任务用 ``M9A_SKIP_ON_RETRY``。
 
-跑计划、运行前设置、判定、记账、桌面游戏启停、开模拟器、文案与通知正文都调 ``MaaFW/tools/embedded``
-里的叶子，只传普通数据；读写配置一律经 ``config_view``。日志、进度点、历史与通知的先后与通用流程完全相同
+跑计划、运行前设置、判定、记账、桌面游戏启停、开模拟器、文案与通知正文都调积木（``maafw_runner``、
+``maafw_project_update``）与共用库（``maafw_adapter_kit``）里的叶子，只传普通数据；读写配置一律经 ``config_view``。日志、进度点、历史与通知的先后与通用流程完全相同
 （logger 名、``lease_owner`` 也照旧）。
 """
 
@@ -54,6 +54,10 @@ from auto_mas_core.host.task_emulator_core import close_emulator, resolve_host_a
 from auto_mas_core.host.utils import UTC4, get_logger, power
 from auto_mas_core.host.utils import game_apk as _utils_game_apk
 from auto_mas_core.host.utils_common_process_scope import current_process_scope
+from maafw_adapter_kit.option_secrets import (
+    DPAPI_SECRET_OPENER,
+    open_task_snapshot,
+)
 from maafw_interface.controller_win32.service import (
     controller_has_window_rules,
 )
@@ -84,10 +88,6 @@ from maafw_interface.runner.task_selection import (
 )
 from maafw_native.project_runtime import (
     describe_project_runtime_architecture_mismatch,
-)
-from maafw_project_update.glue.option_secrets import (
-    DPAPI_SECRET_OPENER,
-    open_task_snapshot,
 )
 from maafw_project_update.host.project_path import (
     is_project_updating,
@@ -206,9 +206,11 @@ logger = get_logger("MaaFW 插件自动代理")
 
 
 def _desktop_process_target() -> Any:
-    """宿主的桌面进程目标（ContextVar）。SDK 没有门面，0.1.0 在函数里直接取宿主模块。"""
+    """宿主的桌面进程目标（ContextVar），经 SDK 出口 ``utils_common_process_session`` 现取。"""
 
-    from app.utils.common.process.session import desktop_process_target
+    from auto_mas_core.host.utils_common_process_session import (
+        desktop_process_target,
+    )
 
     return desktop_process_target
 

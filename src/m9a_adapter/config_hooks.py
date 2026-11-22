@@ -5,13 +5,13 @@
 """M9A 账号保存前的准备：整理受管任务（启动 / 切号 / 关闭）再加密。
 
 - :func:`prepare_m9a_user_update`：先整理（:func:`settle_m9a_user_update`）、再加密，两步都在线程里做，先后
-  与通用的 ``user_update.prepare_user_update`` 相同。由账号配置类 ``M9AUserConfig.update()`` 调用。
+  与通用的 ``user_update.prepare_user_update`` 相同。宿主带托管生命周期钩子时由插件的
+  ``prepare_user_update`` 钩子调用（``lifecycle``）；旧宿主上由账号配置类 ``M9AUserConfig.update()`` 调用。
 
 整理的口径是 ``managed.py`` 的规则（实现在 ``arrange.settle_m9a_snapshot``），这里只是外壳：从配置里取出
 interface、生效的资源名、登录方式和账号 ``Info``，调它，再把结果并回要写的数据。配置一律经 ``config_view`` 读写。
 
-插件 0.1.0 不带配置回调与恢复池（宿主不给插件类型绑配置回调），原来的 ``build_m9a_config_handler``、
-``M9A_RESTORE_POOLS``、``restore_m9a_mas`` 不搬。
+配置备份的恢复池仍不带（SDK 没有插件恢复池的出口），原来的 ``M9A_RESTORE_POOLS``、``restore_m9a_mas`` 不搬。
 """
 
 from __future__ import annotations

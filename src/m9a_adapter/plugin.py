@@ -4,19 +4,25 @@
 
 """M9A 专项插件：登记 M9A 托管与账号类型，向项目更新登记托管属主 ``m9a_adapter``。
 
+托管生命周期钩子（保存前整理与加密、读账号前与新账号补默认队列、复制托管带视图、删除托管清视图）、
+按配置判定游戏类型与桌面分身都转调 ``lifecycle``；有运行没结束时 ``teardown_blockers`` 拒绝停用。
+
 规则 L：本模块和它顶层的整条导入链里不出现别的插件包（三块积木、另外两个专项）；跨插件的导入
 都写在函数体内。两块库（``maafw_interface``、``maafw_native``）不受此限。
 """
 
 from __future__ import annotations
 
+import dataclasses
+from collections.abc import Callable
 from typing import Any
 
 from auto_mas_core import Config, ScriptAdapterPlugin, ScriptTypeDecl, TaskMode
 from auto_mas_core.host.utils import get_logger
 
+from . import lifecycle
 from .config import M9AConfig, M9AUserConfig
-from .expander import M9AExpander, _prefetch_check
+from .expander import M9AExpander, _prefetch_check, active_runs
 
 # 同一个开发版 SDK 号码同时出现在让位前后的宿主：宿主仍内置 M9A 时拒绝加载，避免同名类型冲突。
 _builtin = Config.ScriptConfig.entry_types.get("M9AConfig")
@@ -56,6 +62,16 @@ def _project_mismatch(interface: Any) -> str | None:
     return f"这不是 {TYPE_KEY} 项目。要用别的项目，请新建通用 MFW 托管。"
 
 
+def _optional_decl_fields(**fields: Callable[..., Any]) -> dict[str, Any]:
+    """``ScriptTypeDecl`` 里较新的可选项（按配置判定游戏类型、桌面分身）：宿主的声明类有这一项才传。
+
+    同一个 SDK 版本号同时出现在带与不带这些出口的宿主上，没法靠依赖下限区分；旧宿主上不传，行为同 0.1.0。
+    """
+
+    known = {field.name for field in dataclasses.fields(ScriptTypeDecl)}
+    return {name: value for name, value in fields.items() if name in known}
+
+
 class Plugin(ScriptAdapterPlugin):
     script_type_key = "M9A"
     requires = ("maafw.agent_env.v1", "maafw.runner.v1", PROJECT_SERVICE)
@@ -70,6 +86,10 @@ class Plugin(ScriptAdapterPlugin):
         game_kinds=("emulator", "client"),
         supports_mod_avd=True,
         activity_game="reverse1999",
+        **_optional_decl_fields(
+            game_kind=lifecycle.game_kind,
+            desktop_session=lifecycle.desktop_session,
+        ),
     )
 
     def __init__(self, config: Any = None, record: Any = None) -> None:
@@ -87,8 +107,8 @@ class Plugin(ScriptAdapterPlugin):
 
     async def on_enable(self) -> None:
         global _owner
-        # 跨插件导入写在函数体内（规则 L）；0.1.0 的越界 S1/S3，见拆分契约 §3.2
-        from maafw_project_update.glue.owner_entry import BuiltinConfigOwner
+        # 属主入口在专项共用库里；它用到项目更新的属主协议数据类时才取（规则 L）
+        from maafw_adapter_kit.owner_entry import BuiltinConfigOwner
 
         from .rules import M9A_PLAN_RULES
 
@@ -119,6 +139,41 @@ class Plugin(ScriptAdapterPlugin):
         """属主服务 ``maafw.owner.m9a_adapter.v1``：返回属主入口对象。"""
 
         return self._owner
+
+    async def teardown_blockers(self) -> list[str]:
+        """有 M9A 运行没结束时拒绝停用、重载、卸载（宿主还会另查托管锁）。"""
+
+        count = active_runs()
+        return [f"有 {count} 个 M9A 托管的运行还没结束"] if count else []
+
+    # ── 托管生命周期钩子（宿主带这组出口时才会调；做的事见 ``lifecycle``） ──
+
+    async def prepare_user_update(
+        self, script: Any, user: Any, data: dict[str, Any]
+    ) -> None:
+        """保存账号前：整理受管任务（启动 / 切号 / 关闭）再加密密码。"""
+
+        await lifecycle.prepare_user_update(script, user, data)
+
+    async def prepare_user_read(self, script: Any, user_ids: list[str] | None) -> None:
+        """读账号前：空任务队列按项目默认补上。"""
+
+        await lifecycle.prepare_user_read(script, user_ids)
+
+    async def on_user_added(self, script: Any, user: Any) -> None:
+        """新建账号后：空任务队列按项目默认写入。"""
+
+        await lifecycle.on_user_added(script, user)
+
+    async def on_script_cloned(self, source: Any, target: Any) -> None:
+        """复制托管：给新托管物化项目视图（记 M9A 属主）。"""
+
+        await lifecycle.on_script_cloned(source, target, owner=M9A_OWNER)
+
+    async def on_script_removed(self, script_id: str) -> None:
+        """删除托管：当场删掉它的项目视图，起一轮运行池对账。"""
+
+        await lifecycle.on_script_removed(script_id, owner=M9A_OWNER)
 
 
 __all__ = ["M9A_OWNER", "OWNER_SERVICE", "Plugin"]

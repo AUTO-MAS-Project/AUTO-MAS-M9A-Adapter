@@ -25,16 +25,16 @@ from pathlib import Path
 from typing import Any
 
 from auto_mas_core.host.core import Config
-from maafw_interface.interface.models import MaaFWInterface
-from maafw_interface.runner.plan_transforms import MaaFWPeriodLimits
-from maafw_interface.runner.run_plan import resolve_run_selection
-from maafw_project_update.glue.backup_archive import read_overlay_values
-from maafw_project_update.glue.default_snapshot import fill_default_task_snapshots
-from maafw_project_update.glue.option_secrets import (
+from maafw_adapter_kit.backup_archive import read_overlay_values
+from maafw_adapter_kit.default_snapshot import fill_default_task_snapshots
+from maafw_adapter_kit.option_secrets import (
     prepare_user_task_snapshot,
     script_task_snapshots,
     user_task_snapshot,
 )
+from maafw_interface.interface.models import MaaFWInterface
+from maafw_interface.runner.plan_transforms import MaaFWPeriodLimits
+from maafw_interface.runner.run_plan import resolve_run_selection
 from maafw_project_update.host.embedded_project import (
     follow_source_enabled,
     resolve_maafw_project_root,
@@ -56,36 +56,37 @@ from maafw_runner.host.run_settings import period_limits as _period_limits
 from m9a_adapter.config import M9AConfig
 
 # ---------------------------------------------------------------------------
-# 宿主能力：SDK 没有门面的几项，0.1.0 在函数里直接取宿主模块（同名转发，调用点不变）
+# 宿主能力：经 SDK 出口 ``task_client`` / ``task_game`` 现取（同名转发，调用点不变）；
+# 分辨率选项 SDK 还没有出口，仍在函数里直接取宿主模块
 # ---------------------------------------------------------------------------
 
 
 def client_executable_path(script: Any) -> Any:
-    from app.task.client import client_executable_path as _host
+    from auto_mas_core.host.task_client import client_executable_path as _host
 
     return _host(script)
 
 
 def client_launcher_path(script: Any) -> Any:
-    from app.task.client import client_launcher_path as _host
+    from auto_mas_core.host.task_client import client_launcher_path as _host
 
     return _host(script)
 
 
 def game_device_id(script: Any) -> Any:
-    from app.task.game import game_device_id as _host
+    from auto_mas_core.host.task_game import game_device_id as _host
 
     return _host(script)
 
 
 def game_is_emulator(script: Any) -> Any:
-    from app.task.game import game_is_emulator as _host
+    from auto_mas_core.host.task_game import game_is_emulator as _host
 
     return _host(script)
 
 
 def game_target_id(script: Any) -> Any:
-    from app.task.game import game_target_id as _host
+    from auto_mas_core.host.task_game import game_target_id as _host
 
     return _host(script)
 
@@ -165,10 +166,34 @@ def emulator_device(script: Any) -> str:
     return game_device_id(script)
 
 
-async def fill_default_snapshots(script_id: str, script: Any) -> None:
-    """新账号的默认任务队列（经 ``Config.update_user`` 走 M9A 的配置回调）。"""
+async def fill_default_snapshots(
+    script_id: str, script: Any, *, user_ids: list[str] | None = None
+) -> None:
+    """新账号的默认任务队列（经 ``Config.update_user`` 走 M9A 的保存前钩子）；``user_ids`` 为
+    ``None`` 时看托管下全部账号。"""
 
-    await fill_default_task_snapshots(script_id, script)
+    await fill_default_task_snapshots(script_id, script, user_ids)
+
+
+def controller_name(script: Any) -> str:
+    """托管显式选的 controller ``Info.Controller``；读不到按空串。"""
+
+    return str(_value(script, "Info", "Controller") or "")
+
+
+def update_channel(script: Any) -> str:
+    """项目更新渠道 ``Update.Channel``；空按 ``stable``（复制托管时目标挂这个渠道组）。"""
+
+    return str(_value(script, "Update", "Channel") or "stable")
+
+
+async def clear_follow_source(script: Any) -> None:
+    """复制托管时关掉目标的「跟随来源目录（开发者模式）」，不经可见性检查（改一项、提交一次）。"""
+
+    await script.update(
+        type(script).model_validate({"Embedded": {"FollowSource": False}}),
+        check_visibility=False,
+    )
 
 
 def source_path(script: Any) -> str:
@@ -388,6 +413,12 @@ def client_version() -> str:
 # ---------------------------------------------------------------------------
 
 
+def user_uid(user: Any) -> Any:
+    """账号的 uid。"""
+
+    return user.uid
+
+
 def user_name(user: Any) -> Any:
     return user.Info.Name
 
@@ -540,8 +571,10 @@ __all__ = [
     "adb_path_raw",
     "all_task_snapshots",
     "auto_update_mode",
+    "clear_follow_source",
     "client_version",
     "configured_hwnd",
+    "controller_name",
     "desktop_spec",
     "emulator_device",
     "emulator_target",
@@ -588,9 +621,11 @@ __all__ = [
     "task_snapshot_raw",
     "task_snapshot_secret_raw",
     "task_time_limit_raw",
+    "update_channel",
     "user_collection",
     "user_entries",
     "user_items",
     "user_name",
+    "user_uid",
     "win32_methods_raw",
 ]

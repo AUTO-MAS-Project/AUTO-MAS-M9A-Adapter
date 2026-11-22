@@ -434,7 +434,7 @@ class _Device:
 async def _ocr(device: _Device) -> tuple[np.ndarray, list[tuple[str, Box]]]:
     """异步截图并 OCR；OCR 引擎放到线程里，避免阻塞事件循环。"""
 
-    from app.tools.common.ocr import ocr_image
+    from auto_mas_core.host.tools_common_ocr import ocr_image
 
     frame = await device.screencap()
     items = await asyncio.to_thread(ocr_image, frame)
