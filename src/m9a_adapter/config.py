@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import json
+import warnings
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path as NativePath
@@ -54,6 +55,15 @@ from auto_mas_core.host.models_config_shared import (
     none_as,
 )
 from pydantic import Field
+
+# 业务分组 ``Info`` / ``Notify`` 与 SDK 基类上的同名属性（宿主元数据分组的类）重名，pydantic 每建一次类就
+# 报一条「shadows an attribute in parent」。字段名就是落盘与接口里的键，不能改；基类那两个属性也不归我们管。
+# 只按本模块两个类名精确过滤这一条，别的类的同类警告照常报。
+warnings.filterwarnings(
+    "ignore",
+    message=r'Field name "(Info|Notify)" in "M9A(User)?Config" shadows an attribute in parent',
+    category=UserWarning,
+)
 
 # 宿主带不带托管生命周期钩子：带时保存前整理与加密由钩子 ``prepare_user_update`` 做（``plugin.py``），
 # 不带时（旧宿主）仍由账号配置类的 ``update()`` 兜着。同一个 SDK 版本号两种宿主都有，只能按能力判断。
