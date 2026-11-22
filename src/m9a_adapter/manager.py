@@ -25,10 +25,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from auto_mas_core.host.config import config_manager
-from auto_mas_core.host.core import Notify, Publisher
 # 基类只能顶层导入；SDK 没有门面，0.1.0 直接取宿主模块（列进已知问题）。manager 只在函数里被导入。
 from app.core.notify.lifecycle import NotificationTaskBase
+from auto_mas_core.adapters.script import point
+from auto_mas_core.host.config import config_manager
+from auto_mas_core.host.core import Notify, Publisher
 from auto_mas_core.host.core_notify_task_content import (
     NOTIFY_SCREENSHOT_LIMIT,
     prepare_screenshot_images,
@@ -36,16 +37,21 @@ from auto_mas_core.host.core_notify_task_content import (
 )
 from auto_mas_core.host.core_ws import protocol
 from auto_mas_core.host.models_emulator import DeviceBase, DeviceProvider
-from auto_mas_core.host.models_notification_report import TaskResultData, TaskResultReport
+from auto_mas_core.host.models_notification_report import (
+    TaskResultData,
+    TaskResultReport,
+)
 from auto_mas_core.host.models_schema import WSTaskNoticeData
 from auto_mas_core.host.models_task import ScriptItem, UserItem
-from m9a_adapter import config_view
+from auto_mas_core.host.utils import TASK_MODE_ZH, get_logger
+from maafw_agent_env.host.runtime_check import describe_unusable_runtime
+from maafw_agent_env.host.runtime_route import resolve_runtime_pool_route
+from maafw_native.architecture import (
+    describe_unsupported_architecture,
+)
 from maafw_project_update.glue.backup_archive import (
     archive_mas_runtime_backup,
     archive_native_backup,
-)
-from maafw_native.architecture import (
-    describe_unsupported_architecture,
 )
 from maafw_project_update.host import owners
 from maafw_project_update.host.owners import RecordPatch, write_managed_record
@@ -65,6 +71,7 @@ from maafw_project_update.host.project_session import (
     discover_prefetch,
     project_request_from_record,
 )
+from maafw_project_update.host.update_credentials import AutoUpdateMode
 from maafw_runner.host.proxy_quota import proxy_today
 from maafw_runner.host.run_messages import update_log_lines
 from maafw_runner.host.run_notices import (
@@ -72,17 +79,14 @@ from maafw_runner.host.run_notices import (
     signal_summary_title,
     user_results_text,
 )
-from maafw_agent_env.host.runtime_check import describe_unusable_runtime
-from maafw_agent_env.host.runtime_route import resolve_runtime_pool_route
 from maafw_runner.host.signal_notice import (
     SERVER_MAINTENANCE,
     MaaFWSignalTracker,
     push_signal_notices,
 )
 from maafw_runner.host.telemetry_project import record_project_run
-from maafw_project_update.host.update_credentials import AutoUpdateMode
-from auto_mas_core.adapters.script import point
-from auto_mas_core.host.utils import TASK_MODE_ZH, get_logger
+
+from m9a_adapter import config_view
 
 if TYPE_CHECKING:  # pragma: no cover - 仅供类型检查，运行期不导入 maa
     from m9a_adapter.account_run import M9AAccountRun
@@ -311,7 +315,9 @@ class M9AManager(NotificationTaskBase):
             try:
                 await callback(script_config)
             except BaseException as exc:
-                from auto_mas_core.host.utils_common_fluxdown_cli import FluxdownCancelUnconfirmed
+                from auto_mas_core.host.utils_common_fluxdown_cli import (
+                    FluxdownCancelUnconfirmed,
+                )
 
                 ticket = self.config_locks.pop(
                     config_view.script_uid(script_config), None

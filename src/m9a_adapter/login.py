@@ -79,11 +79,14 @@ from typing import Any
 
 import cv2
 import numpy as np
+from auto_mas_core.host.utils import get_logger
+from auto_mas_core.host.utils_common_process_runner import (
+    create_subprocess,
+    stop_process,
+)
 from PIL import Image
 
 from m9a_adapter.startup import M9ALoginRequired, M9AStartupTask
-from auto_mas_core.host.utils import get_logger
-from auto_mas_core.host.utils_common_process_runner import create_subprocess, stop_process
 
 logger = get_logger("M9A B 服登录")
 

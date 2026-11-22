@@ -35,7 +35,6 @@ from contextlib import suppress
 from pathlib import Path
 
 import httpx
-
 from auto_mas_core.host.utils import game_apk as _utils_game_apk
 from auto_mas_core.host.utils import game_update as _utils_game_update
 from auto_mas_core.host.utils import get_logger

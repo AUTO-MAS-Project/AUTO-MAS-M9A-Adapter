@@ -32,6 +32,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from auto_mas_core.adapters.script import begin_attempt, game_update_result, point
 from auto_mas_core.host.core import Notify, Publisher
 from auto_mas_core.host.core_notify_task_content import (
     NOTIFY_SCREENSHOT_LIMIT,
@@ -50,11 +51,9 @@ from auto_mas_core.host.models_schema import (
 from auto_mas_core.host.models_task import LogRecord, ScriptItem, TaskExecuteBase
 from auto_mas_core.host.services import execute_script_task
 from auto_mas_core.host.task_emulator_core import close_emulator, resolve_host_adb
-from m9a_adapter import config_view
-from m9a_adapter.arrange import arrange_m9a_queue
-from m9a_adapter.managed import OFFICIAL_RESOURCE_NAME
-from m9a_adapter.rules import M9A_PLAN_RULES, M9A_SKIP_ON_RETRY
-from m9a_adapter.startup import M9ALoginRequired, M9AStartupTask
+from auto_mas_core.host.utils import UTC4, get_logger, power
+from auto_mas_core.host.utils import game_apk as _utils_game_apk
+from auto_mas_core.host.utils_common_process_scope import current_process_scope
 from maafw_interface.controller_win32.service import (
     controller_has_window_rules,
 )
@@ -62,9 +61,6 @@ from maafw_interface.interface.agent_command import MaaFWAgentCommandPlan
 from maafw_interface.interface.models import MaaFWInterface
 from maafw_interface.interface.preview import interface_display_name
 from maafw_interface.interface.service import MaaFWInterfaceService
-from maafw_native.project_runtime import (
-    describe_project_runtime_architecture_mismatch,
-)
 from maafw_interface.runner.models import (
     MaaFWDeviceConfig,
     MaaFWRunPlan,
@@ -77,11 +73,6 @@ from maafw_interface.runner.plan_transforms import (
     period_records_after,
     skip_tasks_completed_this_run,
 )
-from maafw_runner.core.runner.run_events import (
-    CATEGORY_SIGNAL,
-    STAGE_CLIENT,
-    STAGE_PRETASK,
-)
 from maafw_interface.runner.run_plan import MaaFWRunPlanError
 from maafw_interface.runner.task_selection import (
     MaaFWSnapshotExpansion,
@@ -90,6 +81,24 @@ from maafw_interface.runner.task_selection import (
     describe_plan_failure,
     expand_task_snapshot,
     inspect_task_snapshot,
+)
+from maafw_native.project_runtime import (
+    describe_project_runtime_architecture_mismatch,
+)
+from maafw_project_update.glue.option_secrets import (
+    DPAPI_SECRET_OPENER,
+    open_task_snapshot,
+)
+from maafw_project_update.host.project_path import (
+    is_project_updating,
+    release_run_reservation,
+    try_reserve_project_path,
+)
+from maafw_project_update.host.resource_repair import MaaFWResourceRepair
+from maafw_runner.core.runner.run_events import (
+    CATEGORY_SIGNAL,
+    STAGE_CLIENT,
+    STAGE_PRETASK,
 )
 from maafw_runner.host.attempt_ledger import MaaFWAttemptLedger
 from maafw_runner.host.desktop_game import (
@@ -117,10 +126,6 @@ from maafw_runner.host.host_client import (
     script_adb_env,
     workstation_lock_reason,
 )
-from maafw_project_update.glue.option_secrets import (
-    DPAPI_SECRET_OPENER,
-    open_task_snapshot,
-)
 from maafw_runner.host.plan_run import (
     MaaFWPlanRun,
     MaaFWPlanRunEvent,
@@ -136,18 +141,12 @@ from maafw_runner.host.pretask_run import (
     MaaFWPretaskRunRequest,
     pretasks_need_rerun,
 )
-from maafw_project_update.host.project_path import (
-    is_project_updating,
-    release_run_reservation,
-    try_reserve_project_path,
-)
 from maafw_runner.host.proxy_quota import (
     proxy_day_rolled,
     proxy_today,
     success_settlement,
 )
 from maafw_runner.host.resource_failure import describe_resource_failure
-from maafw_project_update.host.resource_repair import MaaFWResourceRepair
 from maafw_runner.host.run_messages import (
     MISSING_TASK_NOTICE_PREFIX,
     describe_failed_result,
@@ -195,10 +194,12 @@ from maafw_runner.host.signal_notice import (
     SIGNAL_USER_MESSAGES,
     MaaFWSignalTracker,
 )
-from auto_mas_core.adapters.script import begin_attempt, game_update_result, point
-from auto_mas_core.host.utils import UTC4, get_logger, power
-from auto_mas_core.host.utils import game_apk as _utils_game_apk
-from auto_mas_core.host.utils_common_process_scope import current_process_scope
+
+from m9a_adapter import config_view
+from m9a_adapter.arrange import arrange_m9a_queue
+from m9a_adapter.managed import OFFICIAL_RESOURCE_NAME
+from m9a_adapter.rules import M9A_PLAN_RULES, M9A_SKIP_ON_RETRY
+from m9a_adapter.startup import M9ALoginRequired, M9AStartupTask
 
 # 与通用 MFW 的账号流程同名：app.log 的检索习惯不变
 logger = get_logger("MaaFW 插件自动代理")
@@ -1287,7 +1288,9 @@ class M9AAccountRun(TaskExecuteBase):
             name, state = task_point
             point(self, "special", key=name, state=state)
         if self._ledger.current_has_success():
-            from auto_mas_core.host.core_script_update_queue import report_script_task_completed
+            from auto_mas_core.host.core_script_update_queue import (
+                report_script_task_completed,
+            )
 
             report_script_task_completed()
 
@@ -1490,7 +1493,9 @@ class M9AAccountRun(TaskExecuteBase):
         if not self._desktop.opened and not self.opened_emulator:
             return False
         # 只在真正要重启 MAS 自己启动的客户端时撤销预下载资格。
-        from auto_mas_core.host.core_script_update_queue import report_script_task_retrying
+        from auto_mas_core.host.core_script_update_queue import (
+            report_script_task_retrying,
+        )
 
         await report_script_task_retrying()
         self._append_log("本轮失败，关闭由 MAS 启动的游戏/模拟器，下一轮重新启动")

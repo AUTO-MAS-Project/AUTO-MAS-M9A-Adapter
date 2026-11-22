@@ -25,34 +25,35 @@ from pathlib import Path
 from typing import Any
 
 from auto_mas_core.host.core import Config
-from m9a_adapter.config import M9AConfig
-from maafw_project_update.glue.backup_archive import read_overlay_values
 from maafw_interface.interface.models import MaaFWInterface
 from maafw_interface.runner.plan_transforms import MaaFWPeriodLimits
 from maafw_interface.runner.run_plan import resolve_run_selection
+from maafw_project_update.glue.backup_archive import read_overlay_values
 from maafw_project_update.glue.default_snapshot import fill_default_task_snapshots
-from maafw_runner.host.desktop_game import MaaFWDesktopGameSpec
-from maafw_project_update.host.embedded_project import (
-    follow_source_enabled,
-    resolve_maafw_project_root,
-    shell_hint_from_report,
-)
 from maafw_project_update.glue.option_secrets import (
     prepare_user_task_snapshot,
     script_task_snapshots,
     user_task_snapshot,
 )
-from maafw_runner.host.proxy_quota import (
-    proxy_times_used_up as _proxy_times_used_up,
+from maafw_project_update.host.embedded_project import (
+    follow_source_enabled,
+    resolve_maafw_project_root,
+    shell_hint_from_report,
 )
 from maafw_project_update.host.resource_repair import MaaFWRepairRequest
-from maafw_runner.host.run_settings import period_limits as _period_limits
 from maafw_project_update.host.update_credentials import (
     AutoUpdateMode,
     resolve_auto_update_mode,
     resolve_update_credentials,
     resolve_update_proxy_url,
 )
+from maafw_runner.host.desktop_game import MaaFWDesktopGameSpec
+from maafw_runner.host.proxy_quota import (
+    proxy_times_used_up as _proxy_times_used_up,
+)
+from maafw_runner.host.run_settings import period_limits as _period_limits
+
+from m9a_adapter.config import M9AConfig
 
 # ---------------------------------------------------------------------------
 # 宿主能力：SDK 没有门面的几项，0.1.0 在函数里直接取宿主模块（同名转发，调用点不变）

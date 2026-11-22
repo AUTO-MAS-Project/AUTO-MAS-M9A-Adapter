@@ -31,8 +31,9 @@ def _settle_modules() -> tuple[Any, Any, Any]:
     """整理要用的三个模块（``config_view``、``arrange``、interface 读取）；在事件循环上先导入一次，
     线程里再取就只是查缓存。"""
 
-    from m9a_adapter import arrange, config_view
     from maafw_interface.interface import loader
+
+    from m9a_adapter import arrange, config_view
 
     return config_view, arrange, loader
 
