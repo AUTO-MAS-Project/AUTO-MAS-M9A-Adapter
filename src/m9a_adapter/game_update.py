@@ -36,9 +36,9 @@ from pathlib import Path
 
 import httpx
 
-from app.utils import game_apk as _utils_game_apk
-from app.utils import game_update as _utils_game_update
-from app.utils import get_logger
+from auto_mas_core.host.utils import game_apk as _utils_game_apk
+from auto_mas_core.host.utils import game_update as _utils_game_update
+from auto_mas_core.host.utils import get_logger
 
 logger = get_logger("M9A 游戏更新")
 

@@ -24,32 +24,32 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from app.core import Config
+from auto_mas_core.host.core import Config
 from app.models.config import M9AConfig
 from app.task.client import client_executable_path, client_launcher_path
 from app.task.game import game_device_id, game_is_emulator, game_target_id
-from app.task.MaaFW.tools.backup_archive import read_overlay_values
-from app.task.MaaFW.tools.core.interface.models import MaaFWInterface
-from app.task.MaaFW.tools.core.runner.plan_transforms import MaaFWPeriodLimits
-from app.task.MaaFW.tools.core.runner.run_plan import resolve_run_selection
-from app.task.MaaFW.tools.embedded.default_snapshot import fill_default_task_snapshots
-from app.task.MaaFW.tools.embedded.desktop_game import MaaFWDesktopGameSpec
-from app.task.MaaFW.tools.embedded.embedded_project import (
+from maafw_project_update.glue.backup_archive import read_overlay_values
+from maafw_interface.interface.models import MaaFWInterface
+from maafw_interface.runner.plan_transforms import MaaFWPeriodLimits
+from maafw_interface.runner.run_plan import resolve_run_selection
+from maafw_project_update.glue.default_snapshot import fill_default_task_snapshots
+from maafw_runner.host.desktop_game import MaaFWDesktopGameSpec
+from maafw_project_update.host.embedded_project import (
     follow_source_enabled,
     resolve_maafw_project_root,
     shell_hint_from_report,
 )
-from app.task.MaaFW.tools.embedded.option_secrets import (
+from maafw_project_update.glue.option_secrets import (
     prepare_user_task_snapshot,
     script_task_snapshots,
     user_task_snapshot,
 )
-from app.task.MaaFW.tools.embedded.proxy_quota import (
+from maafw_runner.host.proxy_quota import (
     proxy_times_used_up as _proxy_times_used_up,
 )
-from app.task.MaaFW.tools.embedded.resource_repair import MaaFWRepairRequest
-from app.task.MaaFW.tools.embedded.run_settings import period_limits as _period_limits
-from app.task.MaaFW.tools.embedded.update_credentials import (
+from maafw_project_update.host.resource_repair import MaaFWRepairRequest
+from maafw_runner.host.run_settings import period_limits as _period_limits
+from maafw_project_update.host.update_credentials import (
     AutoUpdateMode,
     resolve_auto_update_mode,
     resolve_update_credentials,

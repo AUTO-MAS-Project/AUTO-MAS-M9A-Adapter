@@ -81,9 +81,9 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from app.task.M9A.startup import M9ALoginRequired, M9AStartupTask
-from app.utils import get_logger
-from app.utils.common.process.runner import create_subprocess, stop_process
+from m9a_adapter.startup import M9ALoginRequired, M9AStartupTask
+from auto_mas_core.host.utils import get_logger
+from auto_mas_core.host.utils_common_process_runner import create_subprocess, stop_process
 
 logger = get_logger("M9A B 服登录")
 
@@ -447,7 +447,7 @@ def _if_agree_bilibili() -> bool:
     """全局「同意哔哩哔哩用户协议」开关；读不到按默认关闭处理（不自动同意）。"""
 
     try:
-        from app.core import Config
+        from auto_mas_core.host.core import Config
 
         return bool(Config.setting.Function.IfAgreeBilibili)
     except Exception:  # noqa: BLE001 - 配置不可用时按默认关闭，绝不擅自同意

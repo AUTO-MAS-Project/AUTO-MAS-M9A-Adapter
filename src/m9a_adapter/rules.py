@@ -16,9 +16,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from app.task.M9A.managed import CLOSE_ENTRY, STARTUP_ENTRY, SWITCH_ACCOUNT_ENTRY
-from app.task.MaaFW.tools.core.interface.models import MaaFWInterface
-from app.task.MaaFW.tools.core.interface.plan_rules import MaaFWPlanRules
+from m9a_adapter.managed import CLOSE_ENTRY, STARTUP_ENTRY, SWITCH_ACCOUNT_ENTRY
+from maafw_interface.interface.models import MaaFWInterface
+from maafw_interface.interface.plan_rules import MaaFWPlanRules
 
 TYPE_KEY = "M9A"
 

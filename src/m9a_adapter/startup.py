@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.task.MaaFW.tools.embedded.run_verdict import MaaFWClientStepFailed
+from maafw_runner.host.run_verdict import MaaFWClientStepFailed
 
 
 class M9ALoginRequired(MaaFWClientStepFailed):

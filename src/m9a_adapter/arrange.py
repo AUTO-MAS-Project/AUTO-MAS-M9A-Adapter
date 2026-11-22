@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from app.task.M9A.managed import (
+from m9a_adapter.managed import (
     CLOSE_ENTRY,
     LOGIN_MODE_MAS,
     MANAGED_ENTRIES,
@@ -34,7 +34,7 @@ from app.task.M9A.managed import (
     split_message,
     supports_account_switch,
 )
-from app.task.MaaFW.tools.core.interface.models import (
+from maafw_interface.interface.models import (
     MaaFWInterface,
     resolve_task_instance_name,
     task_name_for_entry,

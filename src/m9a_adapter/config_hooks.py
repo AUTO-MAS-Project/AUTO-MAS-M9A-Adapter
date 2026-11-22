@@ -27,7 +27,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from app.utils import get_logger
+from auto_mas_core.host.utils import get_logger
 
 if TYPE_CHECKING:
     from app.models.script_contracts import ScriptConfigHandler
@@ -41,8 +41,8 @@ def _settle_modules() -> tuple[Any, Any, Any]:
     """整理要用的三个模块（``config_view``、``arrange``、interface 读取）；在事件循环上先导入一次，
     线程里再取就只是查缓存。"""
 
-    from app.task.M9A import arrange, config_view
-    from app.task.MaaFW.tools.core.interface import loader
+    from m9a_adapter import arrange, config_view
+    from maafw_interface.interface import loader
 
     return config_view, arrange, loader
 
@@ -146,7 +146,7 @@ async def restore_m9a_mas(ctx: RestoreContext, ts: str) -> None:
 
     import uuid
 
-    from app.task.M9A import config_view
+    from m9a_adapter import config_view
     from app.task.MaaFW.tools import backup_archive, restore_service
 
     restore_service.user_guard(ctx)
@@ -189,7 +189,7 @@ def build_m9a_config_handler() -> ScriptConfigHandler:
     from dataclasses import replace
 
     from app.models.config import M9AConfig
-    from app.task.M9A.registration import M9A_OWNER
+    from m9a_adapter.registration import M9A_OWNER
     from app.task.MaaFW.tools.embedded.config_handler import (
         build_maafw_config_handler,
     )

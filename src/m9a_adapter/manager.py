@@ -25,31 +25,31 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from app.config import config_manager
-from app.core import Notify, Publisher
+from auto_mas_core.host.config import config_manager
+from auto_mas_core.host.core import Notify, Publisher
 from app.core.notify.lifecycle import NotificationTaskBase
-from app.core.notify.task_content import (
+from auto_mas_core.host.core_notify_task_content import (
     NOTIFY_SCREENSHOT_LIMIT,
     prepare_screenshot_images,
     screenshot_entries,
 )
-from app.core.ws import protocol
-from app.models.emulator import DeviceBase, DeviceProvider
-from app.models.notification.report import TaskResultData, TaskResultReport
-from app.models.schema import WSTaskNoticeData
-from app.models.task import ScriptItem, UserItem
+from auto_mas_core.host.core_ws import protocol
+from auto_mas_core.host.models_emulator import DeviceBase, DeviceProvider
+from auto_mas_core.host.models_notification_report import TaskResultData, TaskResultReport
+from auto_mas_core.host.models_schema import WSTaskNoticeData
+from auto_mas_core.host.models_task import ScriptItem, UserItem
 from app.task.game import current_game_session
-from app.task.M9A import config_view
-from app.task.MaaFW.tools.backup_archive import (
+from m9a_adapter import config_view
+from maafw_project_update.glue.backup_archive import (
     archive_mas_runtime_backup,
     archive_native_backup,
 )
-from app.task.MaaFW.tools.core.native.architecture import (
+from maafw_native.architecture import (
     describe_unsupported_architecture,
 )
-from app.task.MaaFW.tools.embedded import owners
-from app.task.MaaFW.tools.embedded.owners import RecordPatch, write_managed_record
-from app.task.MaaFW.tools.embedded.project_session import (
+from maafw_project_update.host import owners
+from maafw_project_update.host.owners import RecordPatch, write_managed_record
+from maafw_project_update.host.project_session import (
     BENIGN_SKIPS,
     SKIP_OCCUPIED,
     MaaFWProjectDownload,
@@ -65,27 +65,27 @@ from app.task.MaaFW.tools.embedded.project_session import (
     discover_prefetch,
     project_request_from_record,
 )
-from app.task.MaaFW.tools.embedded.proxy_quota import proxy_today
-from app.task.MaaFW.tools.embedded.run_messages import update_log_lines
-from app.task.MaaFW.tools.embedded.run_notices import (
+from maafw_runner.host.proxy_quota import proxy_today
+from maafw_runner.host.run_messages import update_log_lines
+from maafw_runner.host.run_notices import (
     proxy_result_body,
     signal_summary_title,
     user_results_text,
 )
-from app.task.MaaFW.tools.embedded.runtime_check import describe_unusable_runtime
-from app.task.MaaFW.tools.embedded.runtime_route import resolve_runtime_pool_route
-from app.task.MaaFW.tools.embedded.signal_notice import (
+from maafw_agent_env.host.runtime_check import describe_unusable_runtime
+from maafw_agent_env.host.runtime_route import resolve_runtime_pool_route
+from maafw_runner.host.signal_notice import (
     SERVER_MAINTENANCE,
     MaaFWSignalTracker,
     push_signal_notices,
 )
-from app.task.MaaFW.tools.embedded.telemetry_project import record_project_run
-from app.task.MaaFW.tools.embedded.update_credentials import AutoUpdateMode
-from app.task.run_flow import point
-from app.utils import TASK_MODE_ZH, get_logger
+from maafw_runner.host.telemetry_project import record_project_run
+from maafw_project_update.host.update_credentials import AutoUpdateMode
+from auto_mas_core.adapters.script import point
+from auto_mas_core.host.utils import TASK_MODE_ZH, get_logger
 
 if TYPE_CHECKING:  # pragma: no cover - 仅供类型检查，运行期不导入 maa
-    from app.task.M9A.account_run import M9AAccountRun
+    from m9a_adapter.account_run import M9AAccountRun
 
 # 与通用 MFW 的管理器同名：app.log 的检索习惯不变
 logger = get_logger("MFW 内置运行")
@@ -97,13 +97,13 @@ _TELEMETRY_SCRIPT_TYPE = "M9A"
 def _owner_entry() -> Any:
     """M9A 自己的托管属主入口（``registration``），每次现取。"""
 
-    from app.task.M9A.registration import _resolve_owner
+    from m9a_adapter.registration import _resolve_owner
 
     return _resolve_owner()
 
 
 def _owner_name() -> str:
-    from app.task.M9A.registration import M9A_OWNER
+    from m9a_adapter.registration import M9A_OWNER
 
     return M9A_OWNER
 
@@ -295,7 +295,7 @@ class M9AManager(NotificationTaskBase):
             try:
                 await callback(script_config)
             except BaseException as exc:
-                from app.utils.common.fluxdown_cli import FluxdownCancelUnconfirmed
+                from auto_mas_core.host.utils_common_fluxdown_cli import FluxdownCancelUnconfirmed
 
                 ticket = self.config_locks.pop(
                     config_view.script_uid(script_config), None
@@ -330,7 +330,7 @@ class M9AManager(NotificationTaskBase):
         if not emulator_id or emulator_id == "-":
             return None
 
-        from app.core import GameManager
+        from auto_mas_core.host.core import GameManager
 
         device_provider = self._device_provider or GameManager.get_emulator_instance
         try:
@@ -343,7 +343,7 @@ class M9AManager(NotificationTaskBase):
         """``route`` 是运行池路由（``resolve_runtime_pool_route``），调用方在工作线程里取。"""
 
         # 延迟导入：账号流程经 runner 包 import maa，导入即打开 DLL。
-        from app.task.M9A.account_run import M9AAccountRun
+        from m9a_adapter.account_run import M9AAccountRun
 
         assert self.script_config is not None
         assert self.user_config is not None
@@ -403,7 +403,7 @@ class M9AManager(NotificationTaskBase):
         elif isinstance(event, MaaFWProjectPoint):
             point(self, event.stage, state=event.state, key=event.key)
         elif isinstance(event, MaaFWProjectDownload):
-            from app.core.downloads import download_observer
+            from auto_mas_core.host.core_downloads import download_observer
 
             observer = download_observer.get()
             if observer is not None:

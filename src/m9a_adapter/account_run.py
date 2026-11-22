@@ -33,58 +33,58 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 import app.core.notify.formats.maafw as _format_maafw
-from app.core import Notify, Publisher
-from app.core.notify.task_content import (
+from auto_mas_core.host.core import Notify, Publisher
+from auto_mas_core.host.core_notify_task_content import (
     NOTIFY_SCREENSHOT_LIMIT,
     prepare_screenshot_images,
     screenshot_entries,
 )
-from app.core.ws import protocol
-from app.models.emulator import DeviceBase, DeviceInfo
-from app.models.notification import LocalNotice
-from app.models.schema import (
+from auto_mas_core.host.core_ws import protocol
+from auto_mas_core.host.models_emulator import DeviceBase, DeviceInfo
+from auto_mas_core.host.models_notification import LocalNotice
+from auto_mas_core.host.models_schema import (
     HistoryAttachmentInput,
     HistorySnapshotStatistic,
     HistoryWrite,
     WSTaskNoticeData,
 )
-from app.models.task import LogRecord, ScriptItem, TaskExecuteBase
-from app.services import execute_script_task
-from app.task.emulator_core import close_emulator, resolve_host_adb
-from app.task.M9A import config_view
-from app.task.M9A.arrange import arrange_m9a_queue
-from app.task.M9A.managed import OFFICIAL_RESOURCE_NAME
-from app.task.M9A.rules import M9A_PLAN_RULES, M9A_SKIP_ON_RETRY
-from app.task.M9A.startup import M9ALoginRequired, M9AStartupTask
-from app.task.MaaFW.tools.core.controller_win32.service import (
+from auto_mas_core.host.models_task import LogRecord, ScriptItem, TaskExecuteBase
+from auto_mas_core.host.services import execute_script_task
+from auto_mas_core.host.task_emulator_core import close_emulator, resolve_host_adb
+from m9a_adapter import config_view
+from m9a_adapter.arrange import arrange_m9a_queue
+from m9a_adapter.managed import OFFICIAL_RESOURCE_NAME
+from m9a_adapter.rules import M9A_PLAN_RULES, M9A_SKIP_ON_RETRY
+from m9a_adapter.startup import M9ALoginRequired, M9AStartupTask
+from maafw_interface.controller_win32.service import (
     controller_has_window_rules,
 )
-from app.task.MaaFW.tools.core.interface.agent_command import MaaFWAgentCommandPlan
-from app.task.MaaFW.tools.core.interface.models import MaaFWInterface
-from app.task.MaaFW.tools.core.interface.preview import interface_display_name
-from app.task.MaaFW.tools.core.interface.service import MaaFWInterfaceService
-from app.task.MaaFW.tools.core.native.project_runtime import (
+from maafw_interface.interface.agent_command import MaaFWAgentCommandPlan
+from maafw_interface.interface.models import MaaFWInterface
+from maafw_interface.interface.preview import interface_display_name
+from maafw_interface.interface.service import MaaFWInterfaceService
+from maafw_native.project_runtime import (
     describe_project_runtime_architecture_mismatch,
 )
-from app.task.MaaFW.tools.core.runner.models import (
+from maafw_interface.runner.models import (
     MaaFWDeviceConfig,
     MaaFWRunPlan,
     MaaFWRunResult,
 )
-from app.task.MaaFW.tools.core.runner.plan_transforms import (
+from maafw_interface.runner.plan_transforms import (
     PeriodRecords,
     filter_period_once_tasks,
     parse_period_records,
     period_records_after,
     skip_tasks_completed_this_run,
 )
-from app.task.MaaFW.tools.core.runner.run_events import (
+from maafw_runner.core.runner.run_events import (
     CATEGORY_SIGNAL,
     STAGE_CLIENT,
     STAGE_PRETASK,
 )
-from app.task.MaaFW.tools.core.runner.run_plan import MaaFWRunPlanError
-from app.task.MaaFW.tools.core.runner.task_selection import (
+from maafw_interface.runner.run_plan import MaaFWRunPlanError
+from maafw_interface.runner.task_selection import (
     MaaFWSnapshotExpansion,
     MaaFWSnapshotInspection,
     build_arranged_plan,
@@ -92,13 +92,13 @@ from app.task.MaaFW.tools.core.runner.task_selection import (
     expand_task_snapshot,
     inspect_task_snapshot,
 )
-from app.task.MaaFW.tools.embedded.attempt_ledger import MaaFWAttemptLedger
-from app.task.MaaFW.tools.embedded.desktop_game import (
+from maafw_runner.host.attempt_ledger import MaaFWAttemptLedger
+from maafw_runner.host.desktop_game import (
     MaaFWDesktopGame,
     describe_desktop_launch_error,
     desktop_launch_managed,
 )
-from app.task.MaaFW.tools.embedded.device_config import (
+from maafw_runner.host.device_config import (
     WIN32_NO_WINDOW_RULES_MESSAGE,
     MaaFWAdbDeviceState,
     adb_ready_timeout,
@@ -112,17 +112,17 @@ from app.task.MaaFW.tools.embedded.device_config import (
     resolve_login_adb_path,
     resolve_window_handle,
 )
-from app.task.MaaFW.tools.embedded.host_client import (
+from maafw_runner.host.host_client import (
     WORKSTATION_LOCKED_MESSAGE,
     open_emulator_for_run,
     script_adb_env,
     workstation_lock_reason,
 )
-from app.task.MaaFW.tools.embedded.option_secrets import (
+from maafw_project_update.glue.option_secrets import (
     DPAPI_SECRET_OPENER,
     open_task_snapshot,
 )
-from app.task.MaaFW.tools.embedded.plan_run import (
+from maafw_runner.host.plan_run import (
     MaaFWPlanRun,
     MaaFWPlanRunEvent,
     MaaFWPlanRunLog,
@@ -132,24 +132,24 @@ from app.task.MaaFW.tools.embedded.plan_run import (
     MaaFWPlanRunStage,
     MaaFWTaskDeadlineExpired,
 )
-from app.task.MaaFW.tools.embedded.pretask_run import (
+from maafw_runner.host.pretask_run import (
     MaaFWPretaskRunner,
     MaaFWPretaskRunRequest,
     pretasks_need_rerun,
 )
-from app.task.MaaFW.tools.embedded.project_path import (
+from maafw_project_update.host.project_path import (
     is_project_updating,
     release_run_reservation,
     try_reserve_project_path,
 )
-from app.task.MaaFW.tools.embedded.proxy_quota import (
+from maafw_runner.host.proxy_quota import (
     proxy_day_rolled,
     proxy_today,
     success_settlement,
 )
-from app.task.MaaFW.tools.embedded.resource_failure import describe_resource_failure
-from app.task.MaaFW.tools.embedded.resource_repair import MaaFWResourceRepair
-from app.task.MaaFW.tools.embedded.run_messages import (
+from maafw_runner.host.resource_failure import describe_resource_failure
+from maafw_project_update.host.resource_repair import MaaFWResourceRepair
+from maafw_runner.host.run_messages import (
     MISSING_TASK_NOTICE_PREFIX,
     describe_failed_result,
     format_completed_task_labels,
@@ -161,26 +161,26 @@ from app.task.MaaFW.tools.embedded.run_messages import (
     retry_skip_log_lines,
     signal_attempt_facts,
 )
-from app.task.MaaFW.tools.embedded.run_notices import (
+from maafw_runner.host.run_notices import (
     game_update_notice_text,
     statistics_mark,
     statistics_title,
     success_notice_text,
 )
-from app.task.MaaFW.tools.embedded.run_record import RUN_RECORD_HISTORY_KEY
-from app.task.MaaFW.tools.embedded.run_redaction import (
+from maafw_runner.host.run_record import RUN_RECORD_HISTORY_KEY
+from maafw_runner.host.run_redaction import (
     log_redaction_notice,
     project_log_secret_variants,
     run_secret_values,
     secret_log_variants,
 )
-from app.task.MaaFW.tools.embedded.run_settings import (
+from maafw_runner.host.run_settings import (
     load_json_dict,
     load_script_hotkeys,
     loop_guard,
     task_time_limits,
 )
-from app.task.MaaFW.tools.embedded.run_verdict import (
+from maafw_runner.host.run_verdict import (
     VERDICT_GAME_UPDATE_REQUIRED,
     VERDICT_SIGNAL,
     VERDICT_SUCCEEDED,
@@ -189,17 +189,17 @@ from app.task.MaaFW.tools.embedded.run_verdict import (
     MaaFWWorkstationLocked,
     judge_attempt,
 )
-from app.task.MaaFW.tools.embedded.signal_notice import (
+from maafw_runner.host.signal_notice import (
     MAINTENANCE_LAST_STATUS,
     MAINTENANCE_SKIP_MESSAGE,
     SERVER_MAINTENANCE,
     SIGNAL_USER_MESSAGES,
     MaaFWSignalTracker,
 )
-from app.task.run_flow import begin_attempt, game_update_result, point
-from app.utils import UTC4, get_logger, power
-from app.utils import game_apk as _utils_game_apk
-from app.utils.common.process.scope import current_process_scope
+from auto_mas_core.adapters.script import begin_attempt, game_update_result, point
+from auto_mas_core.host.utils import UTC4, get_logger, power
+from auto_mas_core.host.utils import game_apk as _utils_game_apk
+from auto_mas_core.host.utils_common_process_scope import current_process_scope
 from app.utils.common.process.session import desktop_process_target
 
 # 与通用 MFW 的账号流程同名：app.log 的检索习惯不变
@@ -1080,7 +1080,7 @@ class M9AAccountRun(TaskExecuteBase):
             # 不落到 5037；其余模拟器不接管
             with _utils_game_apk.adb_runner_scope(await resolve_host_adb(self)):
                 # 按需导入、按模块属性调：本包在导入期不拉起网络与 adb 相关模块
-                from app.task.M9A import game_update as m9a_game_update
+                from m9a_adapter import game_update as m9a_game_update
 
                 result = await m9a_game_update.ensure_game_updated(
                     adb_path=Path(adb_path) if adb_path else None,
@@ -1126,7 +1126,7 @@ class M9AAccountRun(TaskExecuteBase):
 
         try:
             # 按需导入、按模块属性调：本包在导入期不拉起 OCR / 图像与 adb 相关模块
-            from app.task.M9A import login as m9a_login
+            from m9a_adapter import login as m9a_login
 
             message = await m9a_login.ensure_logged_in(
                 script_config=self.script_config,
@@ -1280,7 +1280,7 @@ class M9AAccountRun(TaskExecuteBase):
             name, state = task_point
             point(self, "special", key=name, state=state)
         if self._ledger.current_has_success():
-            from app.core.script_update_queue import report_script_task_completed
+            from auto_mas_core.host.core_script_update_queue import report_script_task_completed
 
             report_script_task_completed()
 
@@ -1483,7 +1483,7 @@ class M9AAccountRun(TaskExecuteBase):
         if not self._desktop.opened and not self.opened_emulator:
             return False
         # 只在真正要重启 MAS 自己启动的客户端时撤销预下载资格。
-        from app.core.script_update_queue import report_script_task_retrying
+        from auto_mas_core.host.core_script_update_queue import report_script_task_retrying
 
         await report_script_task_retrying()
         self._append_log("本轮失败，关闭由 MAS 启动的游戏/模拟器，下一轮重新启动")
