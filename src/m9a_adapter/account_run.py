@@ -738,6 +738,8 @@ class M9AAccountRun(TaskExecuteBase):
             and self.run_signal != SERVER_MAINTENANCE
             and not self.stopped_manually,
         )
+        if self.stopped_manually:
+            self._append_log("已手动停止", warning=True)
         # 脚本后任务等抛出的异常不在这里调 on_crash：收尾桥（``_LegacyExecution._finalize``）接住
         # final_task 的异常后会调一次，这里再调就成了两次（账号日志、错误通知各重复一遍）。
         try:

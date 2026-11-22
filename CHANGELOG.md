@@ -9,6 +9,7 @@
 - 脚本后任务抛异常时，账号的异常处理只走一次（原来账号日志与错误通知各重复一遍）。
 - 与 MFW、MSS 共用的宿主胶水改从新库 `auto-mas-maafw-adapter-kit` 导入；桌面进程目标、客户端路径、游戏绑定、OCR 改走 SDK 出口。
 - 建配置类时不再刷 pydantic 的「Field name "Info" / "Notify" shadows an attribute in parent」警告，落盘的键不变。
+- 手动停止运行时，账号日志写一条「已手动停止」。
 
 ## 0.1.0
 
