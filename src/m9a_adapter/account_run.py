@@ -32,7 +32,6 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-import app.core.notify.formats.maafw as _format_maafw
 from auto_mas_core.host.core import Notify, Publisher
 from auto_mas_core.host.core_notify_task_content import (
     NOTIFY_SCREENSHOT_LIMIT,
@@ -200,10 +199,17 @@ from auto_mas_core.adapters.script import begin_attempt, game_update_result, poi
 from auto_mas_core.host.utils import UTC4, get_logger, power
 from auto_mas_core.host.utils import game_apk as _utils_game_apk
 from auto_mas_core.host.utils_common_process_scope import current_process_scope
-from app.utils.common.process.session import desktop_process_target
 
 # 与通用 MFW 的账号流程同名：app.log 的检索习惯不变
 logger = get_logger("MaaFW 插件自动代理")
+
+
+def _desktop_process_target() -> Any:
+    """宿主的桌面进程目标（ContextVar）。SDK 没有门面，0.1.0 在函数里直接取宿主模块。"""
+
+    from app.utils.common.process.session import desktop_process_target
+
+    return desktop_process_target
 
 
 class M9AAccountRun(TaskExecuteBase):
@@ -841,7 +847,7 @@ class M9AAccountRun(TaskExecuteBase):
 
         game_path_error: str | None = None
         if (
-            desktop_process_target.get() is not None
+            _desktop_process_target().get() is not None
             and run_plan.controllerType != "Win32"
         ):
             raise ValueError("MaaFW 桌面分身仅支持 Win32 控制器")
@@ -937,6 +943,7 @@ class M9AAccountRun(TaskExecuteBase):
                 resource_name=resource_name,
                 script_hotkeys=script_hotkeys,
                 rules=rules,
+                client_version=config_view.client_version(),
             )
         except Exception as exc:
             raise MaaFWRunPlanError(
@@ -1221,7 +1228,7 @@ class M9AAccountRun(TaskExecuteBase):
             proxy_url=config_view.proxy_url(self.script_config),
             agent_plans=self._worker_agent_plans,
             extra_env=await self._script_adb_env(),
-            desktop=desktop_process_target.get(),
+            desktop=_desktop_process_target().get(),
             avd_emulator=(
                 self.emulator_manager
                 if profile is not None and profile.emulator_type == "avd"
@@ -1338,7 +1345,7 @@ class M9AAccountRun(TaskExecuteBase):
                 plan_env=self.run_plan.piEnv,
                 extra_env=adb_env,
                 secrets=self._secret_log_variants(),
-                desktop=desktop_process_target.get(),
+                desktop=_desktop_process_target().get(),
             )
         )
 
@@ -1440,7 +1447,7 @@ class M9AAccountRun(TaskExecuteBase):
             config_view.desktop_spec(self.script_config),
             interface=self.interface_model,
             controller_name=self.run_plan.controllerName,
-            desktop=desktop_process_target.get(),
+            desktop=_desktop_process_target().get(),
         )
 
     def _attempt_limit(self) -> int:
@@ -1510,7 +1517,7 @@ class M9AAccountRun(TaskExecuteBase):
             controller_name=plan.controllerName if plan is not None else None,
             controller_type=plan.controllerType if plan is not None else None,
             failed=failed,
-            desktop=desktop_process_target.get(),
+            desktop=_desktop_process_target().get(),
         )
 
     # ------------------------------------------------------------------
@@ -1551,7 +1558,7 @@ class M9AAccountRun(TaskExecuteBase):
 
         reason = await workstation_lock_reason(
             self.run_plan.controllerType if self.run_plan is not None else None,
-            desktop_process_target.get(),
+            _desktop_process_target().get(),
         )
         if reason is not None:
             raise MaaFWWorkstationLocked(WORKSTATION_LOCKED_MESSAGE)
@@ -1819,6 +1826,9 @@ class M9AAccountRun(TaskExecuteBase):
                 has_missing=bool(self.missing_task_names),
                 maintenance=self._is_maintenance_skip(),
             )
+            # SDK 没有门面，0.1.0 在函数里直接取宿主模块（拆分契约 §1.4：留宿主）
+            import app.core.notify.formats.maafw as _format_maafw
+
             await Notify.push_statistics_report(
                 payload=_format_maafw.build_statistics_payload(
                     title=statistics_title(

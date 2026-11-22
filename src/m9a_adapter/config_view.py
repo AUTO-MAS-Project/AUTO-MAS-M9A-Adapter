@@ -25,9 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from auto_mas_core.host.core import Config
-from app.models.config import M9AConfig
-from app.task.client import client_executable_path, client_launcher_path
-from app.task.game import game_device_id, game_is_emulator, game_target_id
+from m9a_adapter.config import M9AConfig
 from maafw_project_update.glue.backup_archive import read_overlay_values
 from maafw_interface.interface.models import MaaFWInterface
 from maafw_interface.runner.plan_transforms import MaaFWPeriodLimits
@@ -55,7 +53,47 @@ from maafw_project_update.host.update_credentials import (
     resolve_update_credentials,
     resolve_update_proxy_url,
 )
-from app.utils.common.game_resolution import parse_resolution_option
+
+# ---------------------------------------------------------------------------
+# 宿主能力：SDK 没有门面的几项，0.1.0 在函数里直接取宿主模块（同名转发，调用点不变）
+# ---------------------------------------------------------------------------
+
+
+def client_executable_path(script: Any) -> Any:
+    from app.task.client import client_executable_path as _host
+
+    return _host(script)
+
+
+def client_launcher_path(script: Any) -> Any:
+    from app.task.client import client_launcher_path as _host
+
+    return _host(script)
+
+
+def game_device_id(script: Any) -> Any:
+    from app.task.game import game_device_id as _host
+
+    return _host(script)
+
+
+def game_is_emulator(script: Any) -> Any:
+    from app.task.game import game_is_emulator as _host
+
+    return _host(script)
+
+
+def game_target_id(script: Any) -> Any:
+    from app.task.game import game_target_id as _host
+
+    return _host(script)
+
+
+def parse_resolution_option(value: Any) -> Any:
+    from app.utils.common.game_resolution import parse_resolution_option as _host
+
+    return _host(value)
+
 
 # ---------------------------------------------------------------------------
 # 托管（脚本级）
@@ -87,9 +125,9 @@ def script_name(script: Any) -> Any:
 
 
 def user_collection(script: Any) -> Any:
-    """托管的账号集合（``UserData``）：按 uid 下标取账号配置，不存在时照原样抛 ``KeyError``。"""
+    """托管的账号集合（插件配置类里是 ``users``，原 ``UserData``）：按 uid 下标取账号配置，不存在时照原样抛 ``KeyError``。"""
 
-    return script.UserData
+    return script.users
 
 
 def user_items(users: Any) -> list[tuple[uuid.UUID, Any]]:
@@ -329,9 +367,19 @@ def silent_mode() -> bool:
 
 
 def import_paths() -> list[Any]:
-    """worker 的导入路径：MAS 源码根。"""
+    """worker 的导入路径：插件里交给运行积木自己算（``plan_run`` 用 ``request.import_paths or
+    worker_import_paths()``），这里给空表。"""
 
-    return [Config.source_path]
+    return []
+
+
+def client_version() -> str:
+    """建计划时写进 ``PI_CLIENT_VERSION`` 的宿主版本号（解析库改由调用方传）；读不到给空串。"""
+
+    try:
+        return str(Config.VERSION or "")
+    except Exception:  # noqa: BLE001 - 读不到版本号不该挡住建计划
+        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -491,6 +539,7 @@ __all__ = [
     "adb_path_raw",
     "all_task_snapshots",
     "auto_update_mode",
+    "client_version",
     "configured_hwnd",
     "desktop_spec",
     "emulator_device",

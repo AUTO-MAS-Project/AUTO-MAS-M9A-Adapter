@@ -2,22 +2,16 @@
 #   Copyright © 2025-2026 AUTO-MAS Team
 #   SPDX-License-Identifier: AGPL-3.0-or-later
 
-"""M9A 托管的配置回调与恢复池：保存账号、恢复账号字段时整理受管任务（启动 / 切号 / 关闭）。
+"""M9A 账号保存前的准备：整理受管任务（启动 / 切号 / 关闭）再加密。
 
-- :func:`build_m9a_config_handler`：通用 MFW 的配置回调（中立模块 ``MaaFW/tools/embedded/config_handler``）
-  只换掉 ``prepare_user_update`` 一项，换成 :func:`prepare_m9a_user_update`；其余（读取前准备、新账号默认
-  队列、复制托管克隆视图、删除托管清理视图与运行池对账）原样。
 - :func:`prepare_m9a_user_update`：先整理（:func:`settle_m9a_user_update`）、再加密，两步都在线程里做，先后
-  与通用的 ``user_update.prepare_user_update`` 相同。
-- ``M9A_RESTORE_POOLS``：mas 池用 ``MaaFW/tools/restore_service`` 公开的部件拼，恢复那一步换成
-  :func:`restore_m9a_mas`（只整理、不加密，照旧）；native 池原样带上 ``NATIVE_POOL``。
+  与通用的 ``user_update.prepare_user_update`` 相同。由账号配置类 ``M9AUserConfig.update()`` 调用。
 
 整理的口径是 ``managed.py`` 的规则（实现在 ``arrange.settle_m9a_snapshot``），这里只是外壳：从配置里取出
 interface、生效的资源名、登录方式和账号 ``Info``，调它，再把结果并回要写的数据。配置一律经 ``config_view`` 读写。
 
-**启动期就会被导入**（``builtin_registration`` 调 ``create_config_handler()`` 时，``registration.build_handler``
-现导入本模块），所以顶层只放轻量导入；``M9A_RESTORE_POOLS`` 是按需建的模块属性（第一次取时才导入恢复服务），
-启动期不拉起它。
+插件 0.1.0 不带配置回调与恢复池（宿主不给插件类型绑配置回调），原来的 ``build_m9a_config_handler``、
+``M9A_RESTORE_POOLS``、``restore_m9a_mas`` 不搬。
 """
 
 from __future__ import annotations
@@ -25,13 +19,9 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from auto_mas_core.host.utils import get_logger
-
-if TYPE_CHECKING:
-    from app.models.script_contracts import ScriptConfigHandler
-    from app.utils.common.config.restore import ConfigRestorePool, RestoreContext
 
 # 与风味路径（``tools/embedded/flavor.sanitize_user_task_update``）同名，app.log 的检索习惯不变
 logger = get_logger("MaaFW 特调")
@@ -141,78 +131,7 @@ async def prepare_m9a_user_update(
     )
 
 
-async def restore_m9a_mas(ctx: RestoreContext, ts: str) -> None:
-    """mas 池的恢复：回填账号字段侧车；老备份里可能还有受管任务，与保存同一口径整理（不加密）。"""
-
-    import uuid
-
-    from m9a_adapter import config_view
-    from app.task.MaaFW.tools import backup_archive, restore_service
-
-    restore_service.user_guard(ctx)
-    user = config_view.user_collection(ctx.script_config)[uuid.UUID(ctx.user_id)]
-    # 恢复前把当前字段终态存底（force），误恢复可找回
-    backup_archive.archive_mas_backup(
-        ctx.script_id, ctx.user_id, config_view.overlay_values(user), force=True
-    )
-    restored = backup_archive.restore_mas_backup(ctx.script_id, ctx.user_id, ts)
-    if restored:
-        overlay = backup_archive.group_overlay(restored)
-        _settle_modules()
-        await asyncio.to_thread(
-            settle_m9a_user_update, ctx.script_id, ctx.script_config, user, overlay
-        )
-        await config_view.replace_user_fields(user, overlay)
-
-
-def _build_restore_pools() -> list[ConfigRestorePool]:
-    from app.task.MaaFW.tools import restore_service
-    from app.utils.common.config.restore import ConfigRestorePool
-
-    return [
-        ConfigRestorePool(
-            key="mas",
-            kind="user",
-            mas_base="sidecar_only",
-            files=restore_service.mas_files,
-            backup_root=restore_service.mas_root,
-            preview=restore_service.preview_mas,
-            restore=restore_m9a_mas,
-        ),
-        restore_service.NATIVE_POOL,
-    ]
-
-
-def build_m9a_config_handler() -> ScriptConfigHandler:
-    """M9A 的配置回调：通用 MFW 那份（按 ``M9AConfig`` 与 M9A 属主造）只换掉保存前准备。"""
-
-    from dataclasses import replace
-
-    from app.models.config import M9AConfig
-    from m9a_adapter.registration import M9A_OWNER
-    from app.task.MaaFW.tools.embedded.config_handler import (
-        build_maafw_config_handler,
-    )
-
-    return replace(
-        build_maafw_config_handler(M9AConfig, owner=M9A_OWNER),
-        prepare_user_update=prepare_m9a_user_update,
-    )
-
-
-def __getattr__(name: str) -> Any:
-    # ``M9A_RESTORE_POOLS`` 按需建：恢复服务只在真要恢复时才导入（宿主取恢复池也是按需的）
-    if name == "M9A_RESTORE_POOLS":
-        pools = _build_restore_pools()
-        globals()[name] = pools
-        return pools
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
-# M9A_RESTORE_POOLS 是按需建的模块属性（见上面的 __getattr__），不列进 __all__
 __all__ = [
-    "build_m9a_config_handler",
     "prepare_m9a_user_update",
-    "restore_m9a_mas",
     "settle_m9a_user_update",
 ]

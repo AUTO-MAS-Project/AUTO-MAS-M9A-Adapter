@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from auto_mas_core.host.config import config_manager
 from auto_mas_core.host.core import Notify, Publisher
+# 基类只能顶层导入；SDK 没有门面，0.1.0 直接取宿主模块（列进已知问题）。manager 只在函数里被导入。
 from app.core.notify.lifecycle import NotificationTaskBase
 from auto_mas_core.host.core_notify_task_content import (
     NOTIFY_SCREENSHOT_LIMIT,
@@ -38,7 +39,6 @@ from auto_mas_core.host.models_emulator import DeviceBase, DeviceProvider
 from auto_mas_core.host.models_notification_report import TaskResultData, TaskResultReport
 from auto_mas_core.host.models_schema import WSTaskNoticeData
 from auto_mas_core.host.models_task import ScriptItem, UserItem
-from app.task.game import current_game_session
 from m9a_adapter import config_view
 from maafw_project_update.glue.backup_archive import (
     archive_mas_runtime_backup,
@@ -95,17 +95,25 @@ _TELEMETRY_SCRIPT_TYPE = "M9A"
 
 
 def _owner_entry() -> Any:
-    """M9A 自己的托管属主入口（``registration``），每次现取。"""
+    """M9A 自己的托管属主入口（插件 ``on_enable`` 建的那一个），每次现取。"""
 
-    from m9a_adapter.registration import _resolve_owner
+    from m9a_adapter.plugin import _resolve_owner
 
     return _resolve_owner()
 
 
 def _owner_name() -> str:
-    from m9a_adapter.registration import M9A_OWNER
+    from m9a_adapter.plugin import M9A_OWNER
 
     return M9A_OWNER
+
+
+def _current_game_session() -> Any:
+    """宿主 L2 选定的游戏会话（ContextVar）。SDK 没有门面，0.1.0 在函数里直接取宿主模块。"""
+
+    from app.task.game import current_game_session
+
+    return current_game_session
 
 
 class _ManagedRecordMissing(RuntimeError):
@@ -130,8 +138,12 @@ class M9AManager(NotificationTaskBase):
         script_info: ScriptItem,
         *,
         device_provider: DeviceProvider | None = None,
+        host_locked_config: Any = None,
     ):
         super().__init__()
+
+        # 插件路径：L2 在建 L3 之前已经拿了这个托管的 X 锁（不可重入），_check 里不再自己拿。
+        self._host_locked_config = host_locked_config
 
         if script_info.task_info is None:
             raise RuntimeError("ScriptItem 未绑定到 TaskItem")
@@ -262,12 +274,16 @@ class M9AManager(NotificationTaskBase):
             if problem := await self._project.hold(work):
                 return problem
             # X 票留在管理器任务上下文；取得后才释放项目预约，两者连续交接。
-            # 照旧直接 try_lock_x()，不走 lock_script_config。
-            ticket = await script_config.try_lock_x()
-            if ticket is None:
-                return SKIP_OCCUPIED
-            self.config_locks[config_view.script_uid(script_config)] = ticket
-            self._script_locked = True
+            if self._host_locked_config is not None:
+                # 宿主已持锁：不拿票、不往 config_locks 放票，收尾也就不解锁（锁归 L2 释放）。
+                self._script_locked = True
+            else:
+                # 照旧直接 try_lock_x()，不走 lock_script_config。
+                ticket = await script_config.try_lock_x()
+                if ticket is None:
+                    return SKIP_OCCUPIED
+                self.config_locks[config_view.script_uid(script_config)] = ticket
+                self._script_locked = True
         except Exception as exc:  # noqa: BLE001 - OSError 之类也要给用户一句话
             return describe_open_failure(script_id, exc)
         finally:
@@ -602,7 +618,7 @@ class M9AManager(NotificationTaskBase):
                     await self._finalize_inner_task()
                     self._reclaim_unused_update_logs()
             finally:
-                session = current_game_session.get()
+                session = _current_game_session().get()
                 if session is not None:
                     await session.release_account()
         self._users_completed = True
@@ -616,7 +632,7 @@ class M9AManager(NotificationTaskBase):
         留底的实例不能还是托管级或上一个账号的。
         """
 
-        session = current_game_session.get()
+        session = _current_game_session().get()
         if session is None:
             return True
         assert self.user_config is not None
