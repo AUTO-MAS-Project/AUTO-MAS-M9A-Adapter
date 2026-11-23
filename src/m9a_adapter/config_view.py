@@ -32,6 +32,10 @@ from maafw_adapter_kit.option_secrets import (
     script_task_snapshots,
     user_task_snapshot,
 )
+from maafw_adapter_kit.proxy_quota import (
+    proxy_times_used_up as _proxy_times_used_up,
+)
+from maafw_adapter_kit.run_settings import period_limits as _period_limits
 from maafw_interface.interface.models import MaaFWInterface
 from maafw_interface.runner.plan_transforms import MaaFWPeriodLimits
 from maafw_interface.runner.run_plan import resolve_run_selection
@@ -48,10 +52,6 @@ from maafw_project_update.host.update_credentials import (
     resolve_update_proxy_url,
 )
 from maafw_runner.host.desktop_game import MaaFWDesktopGameSpec
-from maafw_runner.host.proxy_quota import (
-    proxy_times_used_up as _proxy_times_used_up,
-)
-from maafw_runner.host.run_settings import period_limits as _period_limits
 
 from m9a_adapter.config import M9AConfig
 

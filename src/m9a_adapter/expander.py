@@ -50,8 +50,8 @@ class M9AExpander(UserExpander):
         if ScriptSkip is None:
             return None
 
+        from maafw_adapter_kit.project_texts import SKIP_UPDATING
         from maafw_project_update.host.project_path import is_project_updating
-        from maafw_project_update.host.project_session import SKIP_UPDATING
 
         from . import config_view
 
@@ -77,7 +77,7 @@ class M9AExpander(UserExpander):
             await self._skip_script(skipped.reason)
             return
 
-        from maafw_project_update.host.project_session import BENIGN_SKIPS
+        from maafw_adapter_kit.project_texts import BENIGN_SKIPS
 
         from .manager import M9AManager  # 规则 L：函数内导入
 
