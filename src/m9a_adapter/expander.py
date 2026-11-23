@@ -12,6 +12,10 @@
 托管级检查（:meth:`M9AExpander.check`）只做一件事：项目正在更新时（项目服务 ``project_peek``）返回
 ``ScriptSkip``，整托管记「跳过」、不进管理器。管理器自己的运行前检查判成良性跳过（项目被占用、正在切
 版本），或账号全因停服维护跳过时，同样记成 L3 的跳过，免得 L3 收尾把它写成「完成」。
+
+宿主带两个钩子时接上：L2 送出取消之前的同步停止通知（``on_stop_requested``）转给管理器；声明
+``defer_game_session``，把宿主的 ``select_game_session`` 交给管理器当 ``after_config_lock``，由管理器在拿到
+托管锁、确认有可运行账号之后选定游戏。旧宿主上没有这两个钩子，行为照旧。
 """
 
 from __future__ import annotations
@@ -40,8 +44,26 @@ def _script_skip_type() -> Any:
     return ScriptSkip
 
 
+#: 宿主有没有「确认有账号之后再选定游戏」这个钩子（旧宿主上 L2 仍在派发 L3 之前选定）
+_DEFERRED_GAME_SESSION = hasattr(UserExpander, "select_game_session")
+
+
 class M9AExpander(UserExpander):
     """整轮交给沿用的脚本级管理器；L3 只做外壳。"""
+
+    #: 由管理器在确认有可运行账号之后选定游戏会话（原来 after_config_lock 那个位置）：没有可运行
+    #: 账号就不占游戏、不排队
+    defer_game_session = True
+
+    _manager: Any = None
+
+    def on_stop_requested(self) -> None:
+        """L2 送出取消之前同步通知：转给管理器（收尾里的运行后更新、环境确认按停止处理）。"""
+
+        manager = self._manager
+        if manager is not None:
+            manager.stopped_manually = True
+            manager._on_finalize_cancel_requested()
 
     async def check(self) -> Any:
         """项目正在更新（编辑页的「执行更新」整段占着视图）时良性跳过；其余交给管理器自己的检查。"""
@@ -91,6 +113,10 @@ class M9AExpander(UserExpander):
         manager.history = self.history
         manager.context = self.context
         manager.maintenance = False
+        if _DEFERRED_GAME_SESSION:
+            # 拿到托管锁、确认有可运行账号之后由管理器调（同旧专项 lock_script_config 的约定）
+            manager.after_config_lock = self.select_game_session
+        self._manager = manager
         # L2 收尾时复位（app/task/script_expander.py）
         self.script_info._manager_controls_users = True
         try:
@@ -102,6 +128,7 @@ class M9AExpander(UserExpander):
             ):
                 raise error
         finally:
+            self._manager = None
             await manager.callbacks.close()
             if self.task_info.mode == TaskMode.AUTO_PROXY:
                 manager.finalize_completion_details(self.script_info)
