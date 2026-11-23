@@ -48,11 +48,7 @@ from maafw_adapter_kit.backup_archive import (
     archive_mas_runtime_backup,
     archive_native_backup,
 )
-from maafw_adapter_kit.project_texts import (
-    BENIGN_SKIPS,
-    SKIP_OCCUPIED,
-    describe_open_failure,
-)
+from maafw_adapter_kit.project_texts import BENIGN_SKIPS, SKIP_OCCUPIED
 from maafw_adapter_kit.proxy_quota import proxy_today
 from maafw_adapter_kit.run_messages import update_log_lines
 from maafw_adapter_kit.run_notices import (
@@ -83,6 +79,7 @@ from maafw_project_update.host.project_session import (
     MaaFWProjectRequest,
     MaaFWProjectSession,
     current_siblings,
+    describe_open_failure,
     discover_prefetch,
     project_request_from_record,
 )
