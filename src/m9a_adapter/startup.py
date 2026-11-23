@@ -5,16 +5,15 @@
 """M9A 运行前登录的两种结局：登录失败（:class:`M9ALoginRequired`）与「登录交给首任务完成」
 （:class:`M9AStartupTask`）。
 
-``login.py`` 只用这里的类。现在 M9A 仍跑在 MFW 的风味路径上，``flavor.M9AFlavor.ensure_logged_in``
-把 :class:`M9AStartupTask` 换成引擎认的 ``tools/embedded/flavor.StartupTask``；登录失败类继承
-``run_verdict.MaaFWClientStepFailed``，引擎按它认（文案直接给用户看，按普通失败重试）。
+``login.py`` 只用这里的类。登录失败类继承专项共用库 ``run_verdict.MaaFWClientStepFailed``，账号流程的
+判定（``judge_attempt``）按它认：文案直接给用户看（不加「MaaFW 运行异常: 」前缀），按普通失败重试。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from maafw_runner.host.run_verdict import MaaFWClientStepFailed
+from maafw_adapter_kit.run_verdict import MaaFWClientStepFailed
 
 
 class M9ALoginRequired(MaaFWClientStepFailed):

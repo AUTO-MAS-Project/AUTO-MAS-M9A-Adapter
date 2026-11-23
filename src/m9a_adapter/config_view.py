@@ -37,11 +37,11 @@ from maafw_adapter_kit.proxy_quota import (
     proxy_times_used_up as _proxy_times_used_up,
 )
 from maafw_adapter_kit.run_settings import period_limits as _period_limits
+from maafw_adapter_kit.services import desktop_spec as build_desktop_spec
 from maafw_interface.interface.models import MaaFWInterface
 from maafw_interface.runner.plan_transforms import MaaFWPeriodLimits
 from maafw_interface.runner.run_plan import resolve_run_selection
 from maafw_native.layout import view_dir
-from maafw_runner.host.desktop_game import MaaFWDesktopGameSpec
 
 from m9a_adapter.config import M9AConfig
 
@@ -308,12 +308,13 @@ def all_task_snapshots(script: Any) -> list[Any]:
     return script_task_snapshots(script)
 
 
-def desktop_spec(script: Any, *, for_close: bool = False) -> MaaFWDesktopGameSpec:
-    """桌面游戏启停用到的配置原值（``desktop_game``），每个调用点现取。
+def desktop_spec(script: Any, *, for_close: bool = False) -> dict[str, Any]:
+    """桌面游戏启停用到的配置原值（运行服务桌面游戏操作的 ``spec``，共用库 ``desktop_spec`` 组的
+    字典），每个调用点现取。
 
     游戏 exe 与启动器来自客户端绑定（``client_executable_path`` / ``client_launcher_path``）。
-    ``for_close``：收尾关游戏用。读客户端绑定出错不在这里抛，记进 spec 交给 ``desktop_game``
-    在原来读路径的那一步再抛——没开过游戏时根本不读路径，开过的先关进程再抛。
+    ``for_close``：收尾关游戏用。读客户端绑定出错不在这里抛，原文记进 spec 交给运行服务，在原来读
+    路径的那一步再报——没开过游戏时根本不读路径，开过的先关进程再报。
     """
 
     game_path: Path | None = None
@@ -334,7 +335,7 @@ def desktop_spec(script: Any, *, for_close: bool = False) -> MaaFWDesktopGameSpe
             raise
         launcher_path_error = exc
     game = script.Game
-    return MaaFWDesktopGameSpec(
+    return build_desktop_spec(
         launch_mode=str(game.LaunchMode or "DirectExe").strip(),
         game_path=game_path,
         launcher_path=launcher_path,
