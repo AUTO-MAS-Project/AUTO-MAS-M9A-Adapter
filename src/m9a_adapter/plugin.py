@@ -53,18 +53,6 @@ M9A_OWNER = PLUGIN_ID
 #: 属主服务名前缀（``maafw.owner.m9a_adapter.v1``），8 个操作挂在它下面
 OWNER_SERVICE = owner_service_prefix(M9A_OWNER)
 
-# 管理器读托管记录用的旧形属主入口（第 ④ 步换成新形之前）；插件启用时建，管理器经 ``_resolve_owner``
-# 每次现取
-_owner: Any = None
-
-
-def _resolve_owner() -> Any:
-    """M9A 的托管属主入口（``BuiltinConfigOwner``，只给管理器本地读记录）；插件没启用时没有。"""
-
-    if _owner is None:
-        raise RuntimeError("M9A 专项插件未启用，取不到托管属主入口")
-    return _owner
-
 
 def _project_mismatch(interface: Any) -> str | None:
     """M9A 托管要换进来的项目不是 M9A 项目时给用户看的拒收原因；能收或识别出错时返回 None。"""
@@ -91,7 +79,7 @@ def _optional_decl_fields(**fields: Callable[..., Any]) -> dict[str, Any]:
 
 
 #: 本插件名下托管的属主：项目服务经属主服务现取，按确切类型认领 ``M9AConfig``；带 M9A 的建计划规则表与
-#: 「不是 M9A 项目」的拒收原因
+#: 「不是 M9A 项目」的拒收原因。管理器本地读写本托管的项目记录也经它（``manager._owner_entry``）
 OWNER = ConfigOwner(
     M9A_OWNER,
     lambda: M9AConfig,
@@ -121,10 +109,6 @@ class Plugin(OwnerServiceMixin, ScriptAdapterPlugin):
         ),
     )
 
-    def __init__(self, config: Any = None, record: Any = None) -> None:
-        super().__init__(config=config, record=record)
-        self._owner: Any = None
-
     async def pre_enable(self) -> None:
         refs = {
             "PlanConfig": Config.PlanConfig,
@@ -135,7 +119,6 @@ class Plugin(OwnerServiceMixin, ScriptAdapterPlugin):
         M9AUserConfig.related_config = refs
 
     async def on_enable(self) -> None:
-        global _owner
         # 先绑槽：管理器、外壳从这里现取服务
         SLOT.bind(self.services)
         try:
@@ -148,20 +131,8 @@ class Plugin(OwnerServiceMixin, ScriptAdapterPlugin):
         except BaseException:
             SLOT.unbind()
             raise
-        # 旧形属主入口只留给管理器本地读托管记录（第 ④ 步之前）；它用到项目更新的属主协议数据类时
-        # 才取（规则 L）
-        from maafw_adapter_kit.owner_entry import BuiltinConfigOwner
-
-        self._owner = BuiltinConfigOwner(
-            M9A_OWNER,
-            lambda: M9AConfig,
-            plan_rules=M9A_PLAN_RULES,
-            project_mismatch=_project_mismatch,
-        )
-        _owner = self._owner
 
     async def on_disable(self) -> None:
-        global _owner
         try:
             # 项目服务已经不在就不用注销（同原来 services.get 拿不到时跳过）
             if self.services.get(PROJECT_OWNER_UNREGISTER) is not None:
@@ -174,9 +145,6 @@ class Plugin(OwnerServiceMixin, ScriptAdapterPlugin):
                 except Exception as exc:  # noqa: BLE001 - 注销失败不挡停用
                     logger.warning(f"M9A 专项注销托管属主失败：{exc}")
         finally:
-            if _owner is self._owner:
-                _owner = None
-            self._owner = None
             SLOT.unbind()
 
     async def teardown_blockers(self) -> list[str]:

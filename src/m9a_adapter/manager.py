@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from collections.abc import Mapping
 from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
@@ -49,8 +50,12 @@ from maafw_adapter_kit.backup_archive import (
     archive_mas_runtime_backup,
     archive_native_backup,
 )
-from maafw_adapter_kit.owner_entry import record_payload
-from maafw_adapter_kit.project_texts import BENIGN_SKIPS, SKIP_OCCUPIED
+from maafw_adapter_kit.owner_entry import record_payload, write_or_raise
+from maafw_adapter_kit.project_texts import (
+    BENIGN_SKIPS,
+    SKIP_OCCUPIED,
+    describe_open_failure,
+)
 from maafw_adapter_kit.proxy_quota import proxy_today
 from maafw_adapter_kit.run_messages import update_log_lines
 from maafw_adapter_kit.run_notices import (
@@ -61,9 +66,24 @@ from maafw_adapter_kit.run_notices import (
 from maafw_adapter_kit.services import (
     AGENT_ENV_RUNTIME_CHECK,
     AGENT_ENV_RUNTIME_ROUTE,
+    PROJECT_CONFIRM,
     PROJECT_CONTEXT,
+    PROJECT_FINISH,
+    PROJECT_UPDATE_DISCOVER,
+    PROJECT_UPDATE_UPDATE,
+    Operation,
+    ProjectOpener,
+    ProjectOpenResult,
+    Reply,
+    confirm_request,
+    event_dispatcher,
+    finish_request,
+    open_project,
+    open_request,
     project_context_request,
+    project_job_request,
     runtime_check_request,
+    update_request,
 )
 from maafw_adapter_kit.signal_notice import (
     MaaFWSignalTracker,
@@ -74,24 +94,9 @@ from maafw_interface.runner.models import SERVER_MAINTENANCE
 from maafw_native.architecture import (
     describe_unsupported_architecture,
 )
-from maafw_project_update.host import owners
-from maafw_project_update.host.owners import RecordPatch, write_managed_record
-from maafw_project_update.host.project_session import (
-    MaaFWProjectDownload,
-    MaaFWProjectEvent,
-    MaaFWProjectLease,
-    MaaFWProjectLog,
-    MaaFWProjectNotice,
-    MaaFWProjectPoint,
-    MaaFWProjectRequest,
-    MaaFWProjectSession,
-    current_siblings,
-    describe_open_failure,
-    discover_prefetch,
-    project_request_from_record,
-)
 
 from m9a_adapter import config_view
+from m9a_adapter.services import PLUGIN_ID
 from m9a_adapter.services import client as service_client
 
 if TYPE_CHECKING:  # pragma: no cover - 仅供类型检查，运行期不导入 maa
@@ -108,17 +113,11 @@ _TELEMETRY_SCRIPT_TYPE = "M9A"
 
 
 def _owner_entry() -> Any:
-    """M9A 自己的托管属主入口（插件 ``on_enable`` 建的那一个），每次现取。"""
+    """M9A 自己的托管属主（插件模块级那一个 ``ConfigOwner``），本地读写记录用。"""
 
-    from m9a_adapter.plugin import _resolve_owner
+    from m9a_adapter.plugin import OWNER
 
-    return _resolve_owner()
-
-
-def _owner_name() -> str:
-    from m9a_adapter.plugin import M9A_OWNER
-
-    return M9A_OWNER
+    return OWNER
 
 
 def _current_game_session() -> Any:
@@ -133,13 +132,17 @@ class _ManagedRecordMissing(RuntimeError):
     """M9A 属主读不到这个托管（多半是运行中被删了）。"""
 
 
-def _managed_record(script_id: str) -> owners.ManagedRecord:
-    """经 M9A 的属主入口读这个托管的记录（配置原值）。读不到时抛 :class:`_ManagedRecordMissing`。"""
+def _managed_record(script_id: str) -> dict[str, Any]:
+    """经 M9A 的属主读这个托管的记录（``record_payload`` 的字典形，配置原值转成 JSON 值），交给项目服务。
+    读不到时抛 :class:`_ManagedRecordMissing`。"""
 
-    found = _owner_entry().read_managed(script_id)
-    if found.record is None:
-        raise _ManagedRecordMissing(f"M9A 属主读不到托管 {script_id}：{found.status}")
-    return found.record
+    found = _owner_entry().read({"script_id": str(script_id)})
+    record = found.get("record")
+    if record is None:
+        raise _ManagedRecordMissing(
+            f"M9A 属主读不到托管 {script_id}：{found.get('status')}"
+        )
+    return record
 
 
 class M9AManager(NotificationTaskBase):
@@ -192,14 +195,13 @@ class M9AManager(NotificationTaskBase):
         # 项目更新的日志行（已带时间戳）；运行前更新的会并入第一位用户的日志。
         self.project_update_logs: list[str] = []
         self._auto_update_mode: AutoUpdateMode = "Off"
-        # 项目会话（打开 / 更新 / 环境确认 / 收尾 / 预下载）：过程输出经 _on_project_event 回来
-        self._project = MaaFWProjectSession(
-            self._on_project_event,
-            members=self._group_members,
-            display_name=self._script_display_name,
-        )
-        # 打开项目成功时的租约（视图路径等），运行前自检用。
-        self._project_lease: MaaFWProjectLease | None = None
+        # 项目服务（打开 / 更新 / 环境确认 / 收尾 / 发现更新）：过程输出经 _on_project_event 回来。
+        # 收尾期间用户点了停止（_on_finalize_cancel_requested）：在途的更新 / 环境确认经 _stop 停下，
+        # 之后才开始的带 stop_requested 开始（原来项目会话的 stop()）。
+        self._project_stop_requested = False
+        self._project_ops: set[Operation] = set()
+        # 打开项目成功时的租约（``view_path`` / ``interface_path`` / ``version``），运行前自检用。
+        self._project_lease: Mapping[str, Any] | None = None
         # 只有 main_task 正常跑完全部用户才置位；取消/崩溃路径不跑运行后更新。
         self._users_completed = False
         # 运行前检查时视图标记显示还欠一次运行环境确认：main_task 据此在账号任务之前确认。
@@ -252,26 +254,14 @@ class M9AManager(NotificationTaskBase):
             return unsupported
 
         script_id = str(self.script_info.script_id)
-        # 打开项目：导入期间持有项目预约，拿不到就整脚本良性跳过。
-        skipped = await self._project.reserve(script_id)
-        if skipped is not None:
-            return skipped.reason
 
-        async def prepare_before_lock() -> str | None:
-            opened = await self._project.prepare(
-                self._project_request(with_siblings=True)
-            )
-            if opened.record is not None:
-                # 视图已变，取消时也先把导入报告写完，再交回项目预约。写回经托管的属主。
-                await write_managed_record(
-                    script_id,
-                    RecordPatch(
-                        report=opened.record.report,
-                        source_version=opened.record.source_version,
-                        imported_at=opened.record.imported_at,
-                    ),
-                )
-            if self._project.stopping:
+        async def prepare_before_lock(
+            opener: ProjectOpener, opened: ProjectOpenResult
+        ) -> str | None:
+            if opened.record_update is not None:
+                # 视图已变，取消时也先把导入报告写完，再交回项目预约。写回经 M9A 自己的属主。
+                await write_or_raise(_owner_entry(), script_id, opened.record_update)
+            if opener.stopping:
                 return None
             self._env_confirm_needed = opened.env_confirm_needed
             if opened.kind != "opened":
@@ -281,11 +271,7 @@ class M9AManager(NotificationTaskBase):
             await config_view.fill_default_snapshots(script_id, script_config)
             return None
 
-        # 用户停止时项目会话等这一整段做完（有限宽限）再交回预约，见 hold()。
-        work = asyncio.create_task(prepare_before_lock())
-        try:
-            if problem := await self._project.hold(work):
-                return problem
+        async def lock_before_release() -> str | None:
             # X 票留在管理器任务上下文；取得后才释放项目预约，两者连续交接。
             if self._host_locked_config is not None:
                 # 宿主已持锁：不拿票、不往 config_locks 放票，收尾也就不解锁（锁归 L2 释放）。
@@ -297,12 +283,32 @@ class M9AManager(NotificationTaskBase):
                     return SKIP_OCCUPIED
                 self.config_locks[config_view.script_uid(script_config)] = ticket
                 self._script_locked = True
-        except Exception as exc:  # noqa: BLE001 - OSError 之类也要给用户一句话
+            return None
+
+        try:
+            # 打开项目的请求经 M9A 的属主现取记录（与原来组会话请求同一时机）
+            record = _managed_record(script_id)
+        except _ManagedRecordMissing as exc:
             return describe_open_failure(script_id, exc)
-        finally:
-            await self._project.release()
+        # 打开项目（项目服务 open_*，经共用库 open_project）：导入期间持有项目预约，拿不到就整脚本良性
+        # 跳过；用户停止时等这一整段做完（有限宽限）再交回预约。
+        problem = await open_project(
+            service_client("打开项目"),
+            open_request(
+                script_id=script_id,
+                owner=PLUGIN_ID,
+                record=record,
+                script_name=str(self.script_info.name or ""),
+                round_started_at=self._round_started_at,
+            ),
+            inside=prepare_before_lock,
+            after=lock_before_release,
+            on_event=self._on_project_event,
+        )
+        if problem is not None:
+            return problem
         assert self._project_lease is not None
-        project_root = self._project_lease.view_path
+        project_root = Path(str(self._project_lease["view_path"]))
         user_config = config_view.user_collection(script_config)
         self.user_config = user_config
 
@@ -431,24 +437,45 @@ class M9AManager(NotificationTaskBase):
 
     @staticmethod
     async def check_prefetch(config) -> list:
-        """按项目更新模式和凭据发现可用更新，跳过跟随源码的项目并返回发行文件下载需求。"""
+        """按项目更新模式和凭据发现可用更新，跳过跟随源码的项目并返回发行文件下载需求。
 
-        return await discover_prefetch(
-            project_request_from_record(
-                _managed_record(str(config_view.script_uid(config))),
-                owner=_owner_name(),
-            )
+        项目更新服务的 ``discover_*`` 做（会联网）；它回的下载需求字典还原成宿主的
+        ``DownloadRequest``。服务回失败时按 §2.2 抛同一句话的 ``RuntimeError``。
+        """
+
+        from auto_mas_core.host.models_schema import DownloadRequest
+
+        script_id = str(config_view.script_uid(config))
+        reply = await service_client("队列预下载").run(
+            PROJECT_UPDATE_DISCOVER,
+            project_job_request(
+                script_id=script_id,
+                owner=PLUGIN_ID,
+                record=_managed_record(script_id),
+            ),
         )
+        if reply.failed:
+            raise RuntimeError(reply.message)
+        return [
+            DownloadRequest.model_validate(item)
+            for item in reply.get("downloads") or []
+        ]
 
     def _take_project_update_logs(self) -> list[str]:
         logs, self.project_update_logs = self.project_update_logs, []
         return logs
 
-    def _append_update_log(self, message: str) -> None:
-        """记一行更新日志：后端日志 + 脚本实时日志 + 待并入账号日志的缓冲。"""
+    def _append_update_log(self, message: str, *, at: float | None = None) -> None:
+        """记一行更新日志：后端日志 + 脚本实时日志 + 待并入账号日志的缓冲。``at`` 是项目服务发出
+        这一行的时刻（事件的 ``at``），时间戳按它排，轮询晚到的那一点不改时间戳。"""
 
         logger.info(f"MFW 项目更新：{message}")
-        lines = update_log_lines(message, datetime.now().astimezone())
+        when = (
+            datetime.now().astimezone()
+            if at is None
+            else datetime.fromtimestamp(at).astimezone()
+        )
+        lines = update_log_lines(message, when)
         if lines is None:
             # 详情行只进后端日志，不上界面与账号日志。
             return
@@ -457,34 +484,32 @@ class M9AManager(NotificationTaskBase):
             self.script_info.set_log("".join(self.project_update_logs))
         )
 
-    def _on_project_event(self, event: MaaFWProjectEvent) -> None:
-        """项目会话的事件出口：日志行进项目更新日志，进度点以管理器为 owner 上报，预下载的
-        字节进度转给下载观察者。"""
+    def _on_project_event(self, event: Mapping[str, Any]) -> None:
+        """项目服务作业的事件出口：日志行进项目更新日志，进度点以管理器为 owner 上报，下载的
+        字节进度转给下载观察者。在事件循环线程里同步调用。"""
 
-        if isinstance(event, MaaFWProjectLog):
-            self._append_update_log(event.message)
-        elif isinstance(event, MaaFWProjectPoint):
-            point(self, event.stage, state=event.state, key=event.key)
-        elif isinstance(event, MaaFWProjectDownload):
+        def log(
+            message: str, *, warning: bool = False, at: float | None = None
+        ) -> None:
+            self._append_update_log(message, at=at)
+
+        def progress_point(stage: Any, *, state: str, key: str) -> None:
+            point(self, stage, state=state, key=key)
+
+        def download(received: Any, total: Any) -> None:
             from auto_mas_core.host.core_downloads import download_observer
 
             observer = download_observer.get()
             if observer is not None:
-                observer(Path("项目更新包"), event.downloaded, event.total, 0.0)
+                observer(Path("项目更新包"), received, total, 0.0)
 
-    def _project_request(self, *, with_siblings: bool = False) -> MaaFWProjectRequest:
-        """本脚本此刻的项目会话入参：经 M9A 的属主入口现取记录（与通用 MFW 每次现取配置同一时机）。
-        ``with_siblings``：带上同来源重建的候选（打开项目要）。"""
+        event_dispatcher(log=log, point=progress_point, download=download)(event)
 
-        siblings = current_siblings() if with_siblings else ()
-        return project_request_from_record(
-            _managed_record(str(self.script_info.script_id)),
-            owner=_owner_name(),
-            script_name=str(self.script_info.name or ""),
-            params=self.script_info.info.params,
-            round_started_at=self._round_started_at,
-            siblings=siblings,
-        )
+    def _record(self) -> dict[str, Any]:
+        """本托管此刻的托管记录：经 M9A 的属主现取（与原来每次组会话请求同一时机）；托管已被删时抛
+        :class:`_ManagedRecordMissing`。"""
+
+        return _managed_record(str(self.script_info.script_id))
 
     async def _notify_update(
         self, level: Literal["info", "warning", "error"], message: str
@@ -496,9 +521,15 @@ class M9AManager(NotificationTaskBase):
         )
 
     def _on_finalize_cancel_requested(self) -> None:
-        """收尾期间用户点了停止：让运行后更新 / 环境确认按停止处理（项目会话的 stop()）。"""
+        """收尾期间用户点了停止：让运行后更新 / 环境确认按停止处理（原来项目会话的 stop()）。
 
-        self._project.stop()
+        同步执行、不等：在途的更新 / 环境确认经共用库 ``Operation.stop()`` 发 ``_stop``；之后才开始
+        的带 ``stop_requested`` 开始（:meth:`_project_operation`）。
+        """
+
+        self._project_stop_requested = True
+        for operation in list(self._project_ops):
+            operation.stop()
         if self.inner_task is not None and not self._inner_finalized:
             self.inner_task.stopped_manually = True
             self.inner_task._on_finalize_cancel_requested()
@@ -506,51 +537,90 @@ class M9AManager(NotificationTaskBase):
     def _stop_seen(self) -> bool:
         """用户已经要求停止（停在主任务里，或收尾进行中又点了停止）。"""
 
-        return self.stopped_manually or self._project.stop_requested
+        return self.stopped_manually or self._project_stop_requested
 
-    def _script_display_name(self, script_id: str) -> str:
-        """``latest.by`` / ``switchedBy`` 记的脚本 → 名字（经属主登记现查）。"""
+    async def _project_operation(
+        self, family: str, request: Mapping[str, Any]
+    ) -> Reply:
+        """跑一个能被「收尾期间停止」停下的项目长操作（运行前 / 后更新、环境确认）。"""
 
+        operation = service_client("项目更新").operation(
+            family, on_event=self._on_project_event
+        )
+        if self._project_stop_requested:
+            operation.stop()
+        self._project_ops.add(operation)
         try:
-            config = config_view.lookup_script(uuid.UUID(str(script_id)))
-            return str(config_view.script_name(config) or str(script_id)[:8])
-        except (KeyError, ValueError, TypeError, AttributeError):
-            return "迁移" if str(script_id) == "迁移" else str(script_id)[:8] or "未知"
+            return await operation.run(request)
+        finally:
+            self._project_ops.discard(operation)
 
     async def _post_run_view_maintenance(self) -> None:
-        """收尾项目：组同步（只在账号全部正常跑完时做）、写穿巡检、原生日志备份清理。"""
+        """收尾项目：组同步（只在账号全部正常跑完时做）、写穿巡检、原生日志备份清理（项目服务
+        ``finish_*``）。"""
 
         assert self.script_config is not None
         sync_group = self._users_completed and not self._stop_seen()
-        outcome = await self._project.close(
-            self._project_request(), sync_group=sync_group
+        reply = await service_client("收尾项目").run(
+            PROJECT_FINISH,
+            finish_request(
+                script_id=str(self.script_info.script_id),
+                owner=PLUGIN_ID,
+                script_name=str(self.script_info.name or ""),
+                record=self._record(),
+                sync_group=sync_group,
+                round_started_at=self._round_started_at,
+            ),
         )
+        if reply.failed:
+            # 原来收尾出错时异常往上抛，final_task 记「MFW 收尾维护失败」
+            raise RuntimeError(reply.message)
         if sync_group:
             # 切了版本要确认一次运行环境，放到代理结果推送之后由 final_task 做。
-            self._post_run_env_confirm = outcome.env_confirm_needed
-
-    def _group_members(self) -> list[Any]:
-        """同组候选：属主名下的其它托管（运行中的标 ``busy``，不被中途切换）。"""
-
-        return owners.group_members(exclude=str(self.script_info.script_id))
+            self._post_run_env_confirm = bool(reply.get("env_confirm_needed"))
 
     async def _run_project_update(self, phase: AutoUpdateMode) -> None:
-        """按时机更新项目目录（项目会话做）。任何失败都只记日志 + 通知，不抛出。"""
+        """按时机更新项目目录（项目更新服务 ``update_*``）。任何失败都只记日志 + 通知，不抛出。"""
 
         assert self.script_config is not None
-        notice = await self._project.update(self._project_request(), phase)
-        await self._send_project_notice(notice)
+        params = self.script_info.info.params or {}
+        reply = await self._project_operation(
+            PROJECT_UPDATE_UPDATE,
+            update_request(
+                script_id=str(self.script_info.script_id),
+                owner=PLUGIN_ID,
+                script_name=str(self.script_info.name or ""),
+                record=self._record(),
+                phase=phase,
+                prefetch_paths=params.get("prefetch_paths", {}),
+            ),
+        )
+        await self._send_project_notice(reply)
 
     async def _ensure_project_environment(self, phase: AutoUpdateMode) -> None:
-        """更新之后确认一次运行环境（项目会话做）。任何失败都只记日志 + 通知，不抛出。"""
+        """更新之后确认一次运行环境（项目服务 ``confirm_*``）。任何失败都只记日志 + 通知，不抛出。"""
 
         assert self.script_config is not None
-        notice = await self._project.confirm_environment(self._project_request(), phase)
-        await self._send_project_notice(notice)
+        reply = await self._project_operation(
+            PROJECT_CONFIRM,
+            confirm_request(
+                script_id=str(self.script_info.script_id),
+                owner=PLUGIN_ID,
+                record=self._record(),
+                phase=phase,
+            ),
+        )
+        await self._send_project_notice(reply)
 
-    async def _send_project_notice(self, notice: MaaFWProjectNotice | None) -> None:
-        if notice is not None:
-            await self._notify_update(notice.level, notice.message)
+    async def _send_project_notice(self, reply: Reply) -> None:
+        """更新 / 环境确认的终态里带的通知（``notice``）照原样发；拿不到服务时只记后端日志。"""
+
+        if reply.failed:
+            logger.warning(f"MFW 项目更新服务没有完成：{reply.message}")
+            return
+        notice = reply.get("notice")
+        if isinstance(notice, Mapping):
+            await self._notify_update(notice["level"], str(notice["message"]))
 
     # ------------------------------------------------------------------
     # 主流程
