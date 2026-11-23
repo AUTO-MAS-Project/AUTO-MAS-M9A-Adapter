@@ -65,10 +65,10 @@ async def on_script_cloned(source: Any, target: Any, *, owner: str) -> None:
     首次运行按来源目录导入。新视图当场记下属主 ``owner``。
     """
 
+    from maafw_native.layout import view_dir
     from maafw_project_update.host.embedded_project import (
         FollowSourceCloneUnavailable,
         clone_embedded_copy,
-        embedded_project_dir,
         is_source_form,
     )
     from maafw_project_update.host.project_path import (
@@ -85,7 +85,7 @@ async def on_script_cloned(source: Any, target: Any, *, owner: str) -> None:
     group_channel = config_view.update_channel(source)
     source_form = is_source_form(source)
 
-    target_key = await try_reserve_project_path(embedded_project_dir(target_id))
+    target_key = await try_reserve_project_path(view_dir(target_id))
     if target_key is None:
         return
     try:
@@ -109,18 +109,15 @@ async def on_script_cloned(source: Any, target: Any, *, owner: str) -> None:
 async def on_script_removed(script_id: str, *, owner: str) -> None:
     """删除托管：起运行池对账（后台），再删这个托管的视图；视图记着别的属主时不删、记一句。"""
 
-    from maafw_project_update.host.embedded_project import (
-        embedded_project_dir,
-        remove_tree,
-        view_owner,
-    )
+    from maafw_native.layout import view_dir
+    from maafw_project_update.host.embedded_project import remove_tree, view_owner
     from maafw_project_update.host.live_projects import reconcile_in_background
 
     logger = _logger()
     # 先后照内置时：删除提交后先起对账（守护线程，不拖慢删除），再清视图
     reconcile_in_background("script-deleted")
     # 视图不放在 data/<uid>/ 下（避免进入配置备份的整目录快照），宿主删数据目录时不会带走它
-    embedded_copy = embedded_project_dir(script_id)
+    embedded_copy = view_dir(script_id)
     if not embedded_copy.exists():
         return
     recorded = await asyncio.to_thread(view_owner, embedded_copy)

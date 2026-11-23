@@ -39,9 +39,9 @@ from maafw_adapter_kit.run_settings import period_limits as _period_limits
 from maafw_interface.interface.models import MaaFWInterface
 from maafw_interface.runner.plan_transforms import MaaFWPeriodLimits
 from maafw_interface.runner.run_plan import resolve_run_selection
+from maafw_native.layout import view_dir
 from maafw_project_update.host.embedded_project import (
     follow_source_enabled,
-    resolve_maafw_project_root,
     shell_hint_from_report,
 )
 from maafw_project_update.host.resource_repair import MaaFWRepairRequest
@@ -145,9 +145,10 @@ def user_entries(users: Any) -> Any:
 
 
 def project_root(script_id: str, script: Any) -> Path:
-    """有效项目根（视图），未 ``resolve()``。"""
+    """有效项目根（视图），未 ``resolve()``；与配置无关，只由托管 ID 推出。"""
 
-    return resolve_maafw_project_root(script_id, script)
+    del script  # 有效根不取决于配置，参数只为调用点不变
+    return view_dir(script_id)
 
 
 def auto_update_mode(script: Any) -> AutoUpdateMode:
