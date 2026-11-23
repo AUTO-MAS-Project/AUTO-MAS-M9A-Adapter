@@ -10,8 +10,8 @@
 模式运行，不再自己拿锁。L3 自己的账号循环、``build_worker`` 都不用。
 
 托管级检查（:meth:`M9AExpander.check`）只做一件事：项目正在更新时返回 ``ScriptSkip``，整托管记「跳过」、
-不进管理器。管理器自己的运行前检查判成良性跳过（项目被占用、正在切版本）时，同样记成 L3 的跳过，免得
-L3 收尾把它写成「完成」。
+不进管理器。管理器自己的运行前检查判成良性跳过（项目被占用、正在切版本），或账号全因停服维护跳过时，
+同样记成 L3 的跳过，免得 L3 收尾把它写成「完成」。
 """
 
 from __future__ import annotations
@@ -102,6 +102,9 @@ class M9AExpander(UserExpander):
             if manager.check_result in BENIGN_SKIPS:
                 # 管理器已把托管记成「跳过」、发了 warning；L3 收尾照它写，不改成「完成」
                 self._skipped = manager.check_result
+            elif getattr(self.script_info.info, "status", None) == "跳过":
+                # 账号全因停服维护跳过：管理器记了托管「跳过」，同样别让 L3 收尾改成「完成」
+                self._skipped = "跳过"
 
     def build_worker(self, user: Any, config: Any) -> Any:
         raise NotImplementedError("由 main_task 整轮交给管理器")
