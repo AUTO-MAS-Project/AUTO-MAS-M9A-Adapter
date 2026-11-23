@@ -2,13 +2,16 @@
 #   Copyright © 2025-2026 AUTO-MAS Team
 #   SPDX-License-Identifier: AGPL-3.0-or-later
 
-"""M9A 专项插件：登记 M9A 托管与账号类型，向项目更新登记托管属主 ``m9a_adapter``。
+"""M9A 专项插件：登记 M9A 托管与账号类型，经项目服务登记托管属主 ``m9a_adapter``。
 
 托管生命周期钩子（保存前整理与加密、读账号前与新账号补默认队列、复制托管带视图、删除托管清视图）、
 按配置判定游戏类型与桌面分身都转调 ``lifecycle``；有运行没结束时 ``teardown_blockers`` 拒绝停用。
+属主是新形：本插件提供 ``maafw.owner.m9a_adapter.v1`` 下的 8 个属主操作（共用库 ``OwnerServiceMixin``），
+启用时经项目服务 ``owner_register`` 登记。
 
 规则 L：本模块和它顶层的整条导入链里不出现别的插件包（三块积木、另外两个专项）；跨插件的导入
-都写在函数体内。两块库（``maafw_interface``、``maafw_native``）不受此限。
+都写在函数体内。两块库（``maafw_interface``、``maafw_native``）与专项共用库（``maafw_adapter_kit``）
+不是插件，不受此限。
 """
 
 from __future__ import annotations
@@ -19,10 +22,24 @@ from typing import Any
 
 from auto_mas_core import Config, ScriptAdapterPlugin, ScriptTypeDecl, TaskMode
 from auto_mas_core.host.utils import get_logger
+from maafw_adapter_kit.owner_entry import (
+    ConfigOwner,
+    OwnerServiceMixin,
+    owner_provides,
+    owner_service_prefix,
+)
+from maafw_adapter_kit.services import (
+    PROJECT_OWNER_REGISTER,
+    PROJECT_OWNER_UNREGISTER,
+    owner_register_request,
+    owner_unregister_request,
+)
 
 from . import lifecycle
 from .config import M9AConfig, M9AUserConfig
 from .expander import M9AExpander, _prefetch_check, active_runs
+from .rules import M9A_PLAN_RULES
+from .services import PLUGIN_ID, REQUIRES, SLOT, client
 
 # 同一个开发版 SDK 号码同时出现在让位前后的宿主：宿主仍内置 M9A 时拒绝加载，避免同名类型冲突。
 _builtin = Config.ScriptConfig.entry_types.get("M9AConfig")
@@ -32,16 +49,17 @@ if _builtin is not None and _builtin.__module__.startswith("app."):
 logger = get_logger("M9A 专项插件")
 
 # 属主名沿用内置时的 ``m9a_adapter``：视图目录、导入报告里记的属主不变
-M9A_OWNER = "m9a_adapter"
-OWNER_SERVICE = "maafw.owner.m9a_adapter.v1"
-PROJECT_SERVICE = "maafw.project.v1"
+M9A_OWNER = PLUGIN_ID
+#: 属主服务名前缀（``maafw.owner.m9a_adapter.v1``），8 个操作挂在它下面
+OWNER_SERVICE = owner_service_prefix(M9A_OWNER)
 
-# 当前启用实例的属主入口；管理器经 ``_resolve_owner`` 每次现取
+# 管理器读托管记录用的旧形属主入口（第 ④ 步换成新形之前）；插件启用时建，管理器经 ``_resolve_owner``
+# 每次现取
 _owner: Any = None
 
 
 def _resolve_owner() -> Any:
-    """M9A 的托管属主入口（``BuiltinConfigOwner``）；插件没启用时没有。"""
+    """M9A 的托管属主入口（``BuiltinConfigOwner``，只给管理器本地读记录）；插件没启用时没有。"""
 
     if _owner is None:
         raise RuntimeError("M9A 专项插件未启用，取不到托管属主入口")
@@ -72,10 +90,21 @@ def _optional_decl_fields(**fields: Callable[..., Any]) -> dict[str, Any]:
     return {name: value for name, value in fields.items() if name in known}
 
 
-class Plugin(ScriptAdapterPlugin):
+#: 本插件名下托管的属主：项目服务经属主服务现取，按确切类型认领 ``M9AConfig``；带 M9A 的建计划规则表与
+#: 「不是 M9A 项目」的拒收原因
+OWNER = ConfigOwner(
+    M9A_OWNER,
+    lambda: M9AConfig,
+    plan_rules=M9A_PLAN_RULES,
+    project_mismatch=_project_mismatch,
+)
+
+
+class Plugin(OwnerServiceMixin, ScriptAdapterPlugin):
     script_type_key = "M9A"
-    requires = ("maafw.agent_env.v1", "maafw.runner.v1", PROJECT_SERVICE)
-    provides_services = {OWNER_SERVICE: "owner_entry"}
+    requires = REQUIRES
+    provides_services = owner_provides(M9A_OWNER)
+    owner_entry = OWNER
     decl = ScriptTypeDecl(
         script_type=M9AConfig,
         user_type=M9AUserConfig,
@@ -107,10 +136,21 @@ class Plugin(ScriptAdapterPlugin):
 
     async def on_enable(self) -> None:
         global _owner
-        # 属主入口在专项共用库里；它用到项目更新的属主协议数据类时才取（规则 L）
+        # 先绑槽：管理器、外壳从这里现取服务
+        SLOT.bind(self.services)
+        try:
+            # 生命周期钩子里只试一次；登记不上（属主名冲突等）启用失败，同原来直接登记时
+            reply = await client("on_enable").call_once(
+                PROJECT_OWNER_REGISTER,
+                owner_register_request(M9A_OWNER, OWNER_SERVICE),
+            )
+            reply.expect_ok()
+        except BaseException:
+            SLOT.unbind()
+            raise
+        # 旧形属主入口只留给管理器本地读托管记录（第 ④ 步之前）；它用到项目更新的属主协议数据类时
+        # 才取（规则 L）
         from maafw_adapter_kit.owner_entry import BuiltinConfigOwner
-
-        from .rules import M9A_PLAN_RULES
 
         self._owner = BuiltinConfigOwner(
             M9A_OWNER,
@@ -119,26 +159,25 @@ class Plugin(ScriptAdapterPlugin):
             project_mismatch=_project_mismatch,
         )
         _owner = self._owner
-        project = self.services.require(PROJECT_SERVICE)
-        await project("owner.register", name=M9A_OWNER, service=OWNER_SERVICE)
 
     async def on_disable(self) -> None:
         global _owner
         try:
-            project = self.services.get(PROJECT_SERVICE)
-            if project is not None:
-                await project("owner.unregister", name=M9A_OWNER)
-        except Exception as exc:  # noqa: BLE001 - 注销失败不挡停用
-            logger.warning(f"M9A 专项注销托管属主失败：{exc}")
+            # 项目服务已经不在就不用注销（同原来 services.get 拿不到时跳过）
+            if self.services.get(PROJECT_OWNER_UNREGISTER) is not None:
+                try:
+                    reply = await client("on_disable").call_once(
+                        PROJECT_OWNER_UNREGISTER, owner_unregister_request(M9A_OWNER)
+                    )
+                    if reply.failed:
+                        logger.warning(f"M9A 专项注销托管属主失败：{reply.message}")
+                except Exception as exc:  # noqa: BLE001 - 注销失败不挡停用
+                    logger.warning(f"M9A 专项注销托管属主失败：{exc}")
         finally:
             if _owner is self._owner:
                 _owner = None
             self._owner = None
-
-    def owner_entry(self) -> Any:
-        """属主服务 ``maafw.owner.m9a_adapter.v1``：返回属主入口对象。"""
-
-        return self._owner
+            SLOT.unbind()
 
     async def teardown_blockers(self) -> list[str]:
         """有 M9A 运行没结束时拒绝停用、重载、卸载（宿主还会另查托管锁）。"""
