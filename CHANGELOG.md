@@ -11,6 +11,7 @@
 - 账号拿项目预约（`run_reserve`）、项目自动更新时机与更新代理和资源包修复的口径（`project_context`）、复制 / 删除托管（`script_cloned` / `script_removed`）、外壳看项目在不在更新（`project_peek`）改调项目服务；跳过、失败与日志的话与原来相同。删除托管改成先删视图再起运行池对账（项目更新统一的先后，用户看不出）。
 - 管理器不再持有项目更新的项目会话：打开项目经共用库 `open_project`（项目服务 `open_*`）、运行前 / 后更新与环境确认经 `update_*` / `confirm_*`、收尾项目经 `finish_*`、队列预下载的发现经 `discover_*`；导入后写回项目记录经本插件的属主。日志、通知、跳过与失败的话与原来相同，更新日志的时间戳按服务发出那一行的时刻。
 - 账号运行的桌面游戏启停、设备配置、运行前设置、跑计划改经运行服务（账号句柄 `account_open` / `account_close`、`desktop_*`、`device_*`、`pretask_*`、`plan_*`），资源包修复与交回项目预约经项目服务（`repair_*`、共用库 `release_run_reservation`）；判定、尝试记账与 ADB 设备缓存改用专项共用库那份。登录交给首任务时首任务到了登录时限，照旧说「启动失败：登录时限已耗尽」；`M9ALoginRequired` 改继承共用库的 `MaaFWClientStepFailed`，登录失败的话照旧不加前缀。
+- 开模拟器、adb 环境、锁屏判定与运行记录键改从专项共用库取（`host_client`、`run_record`），账号流程不再导入运行积木与项目更新。
 
 ## 0.2.0
 
