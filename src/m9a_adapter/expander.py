@@ -51,12 +51,18 @@ class M9AExpander(UserExpander):
             return None
 
         from maafw_adapter_kit.project_texts import SKIP_UPDATING
-        from maafw_project_update.host.project_path import is_project_updating
+        from maafw_adapter_kit.services import PROJECT_PEEK, script_request
 
-        from . import config_view
+        from .services import client
 
-        script_id = str(self.script_info.script_id)
-        if is_project_updating(config_view.project_root(script_id, self.script_config)):
+        # 项目此刻在不在更新：问项目服务（project_peek，看的是这个托管的视图）
+        reply = await client("外壳检查").call(
+            PROJECT_PEEK, script_request(str(self.script_info.script_id))
+        )
+        if reply.failed:
+            # 拿不到服务（项目插件已停用或重载）：原来这里不会失败，按异常往上抛，文案是那句固定话
+            raise RuntimeError(reply.message)
+        if reply.get("updating"):
             return ScriptSkip(SKIP_UPDATING)
         return None
 

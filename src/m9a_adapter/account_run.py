@@ -58,6 +58,7 @@ from maafw_adapter_kit.option_secrets import (
     DPAPI_SECRET_OPENER,
     open_task_snapshot,
 )
+from maafw_adapter_kit.owner_entry import record_payload
 from maafw_adapter_kit.proxy_quota import (
     proxy_day_rolled,
     proxy_today,
@@ -88,6 +89,13 @@ from maafw_adapter_kit.run_settings import (
     load_script_hotkeys,
     loop_guard,
     task_time_limits,
+)
+from maafw_adapter_kit.services import (
+    PROJECT_CONTEXT,
+    PROJECT_RUN_RESERVE,
+    Reply,
+    project_context_request,
+    script_request,
 )
 from maafw_adapter_kit.signal_notice import (
     MAINTENANCE_LAST_STATUS,
@@ -141,12 +149,11 @@ from maafw_interface.runner.task_selection import (
 from maafw_native.project_runtime import (
     describe_project_runtime_architecture_mismatch,
 )
-from maafw_project_update.host.project_path import (
-    is_project_updating,
-    release_run_reservation,
-    try_reserve_project_path,
+from maafw_project_update.host.project_path import release_run_reservation
+from maafw_project_update.host.resource_repair import (
+    MaaFWRepairRequest,
+    MaaFWResourceRepair,
 )
-from maafw_project_update.host.resource_repair import MaaFWResourceRepair
 from maafw_runner.host.attempt_ledger import MaaFWAttemptLedger
 from maafw_runner.host.desktop_game import (
     MaaFWDesktopGame,
@@ -201,6 +208,7 @@ from m9a_adapter import config_view
 from m9a_adapter.arrange import arrange_m9a_queue
 from m9a_adapter.managed import OFFICIAL_RESOURCE_NAME
 from m9a_adapter.rules import M9A_PLAN_RULES, M9A_SKIP_ON_RETRY
+from m9a_adapter.services import client as service_client
 from m9a_adapter.startup import M9ALoginRequired, M9AStartupTask
 
 # 与通用 MFW 的账号流程同名：app.log 的检索习惯不变
@@ -334,11 +342,12 @@ class M9AAccountRun(TaskExecuteBase):
             await self.cur_user_item.set_state(status="跳过")
             return "今日代理次数已达上限，跳过该账号"
 
-        if not await self._try_enter_project_path():
+        busy_reason = await self._try_enter_project_path()
+        if busy_reason is not None:
             # 项目被占着没跑成：记「异常」而不是「跳过」
             await self.cur_user_item.set_state(status="异常")
             self.project_busy_skipped = True
-            if is_project_updating(self.project_path):
+            if busy_reason == "updating":
                 return "项目正在更新，本次未运行该账号"
             return (
                 "项目正被编辑页的准备运行环境、导入或另一次运行占用，本次未运行该账号"
@@ -1215,6 +1224,9 @@ class M9AAccountRun(TaskExecuteBase):
                 }
             )
             task_deadlines[first.name] = startup.deadline
+        # 与运行前更新 / 预检同一份解析（项目服务 project_context）：托管级 Update.ProxyAddress 优先，
+        # 留空跟随全局
+        proxy_url = (await self._project_context()).get("proxy_url")
         secrets = self._secret_log_variants()
         profile = self._adb_state.profile
         request = MaaFWPlanRunRequest(
@@ -1247,8 +1259,7 @@ class M9AAccountRun(TaskExecuteBase):
             game_start_disk_quiet=self._disk_quiet,
             game_wait_seconds=config_view.game_wait_time(self.script_config),
             import_paths=config_view.import_paths(),
-            # 与运行前更新 / 预检同一份解析：托管级 Update.ProxyAddress 优先，留空跟随全局
-            proxy_url=config_view.proxy_url(self.script_config),
+            proxy_url=proxy_url,
             agent_plans=self._worker_agent_plans,
             extra_env=await self._script_adb_env(),
             desktop=_desktop_process_target().get(),
@@ -1486,12 +1497,17 @@ class M9AAccountRun(TaskExecuteBase):
     async def _recover_resource_failure(self, kind: str) -> tuple[str, str] | None:
         """资源包加载失败之后与发行包核对（``resource_repair``）。"""
 
+        # 跟随来源、渠道、代理、外壳提示都按项目服务的口径（project_context）
+        context = await self._project_context()
         return await self._repair.run(
             kind,
-            config_view.repair_request(
-                str(self.script_info.script_id),
-                str(self.script_info.name or ""),
-                self.script_config,
+            MaaFWRepairRequest(
+                script_id=str(self.script_info.script_id),
+                script_name=str(self.script_info.name or ""),
+                follow_source=bool(context.get("follow_source")),
+                channel=context.get("channel"),
+                proxy_url=context.get("proxy_url"),
+                shell_hint=context.get("shell_hint"),
             ),
         )
 
@@ -1551,12 +1567,33 @@ class M9AAccountRun(TaskExecuteBase):
     # 项目预约、显示保持、锁屏
     # ------------------------------------------------------------------
 
-    async def _try_enter_project_path(self) -> bool:
-        project_lock_key = await try_reserve_project_path(self.project_path)
-        if project_lock_key is None:
-            return False
-        self.project_lock_key = project_lock_key
-        return True
+    async def _try_enter_project_path(self) -> str | None:
+        """拿本账号的项目预约（项目服务 ``run_reserve``）。拿到返回 None；被占着时返回原因
+        （``updating``：项目正在更新；``occupied``：别的预约占着）。"""
+
+        reply = await service_client("账号预约").call(
+            PROJECT_RUN_RESERVE, script_request(str(self.script_info.script_id))
+        )
+        if reply.failed:
+            # 拿不到服务（项目插件已停用或重载）：原来这里不会失败，按异常往上抛，文案是那句固定话
+            raise RuntimeError(reply.message)
+        if reply.skipped:
+            return reply.reason or "occupied"
+        self.project_lock_key = str(reply["key"])
+        return None
+
+    async def _project_context(self) -> Reply:
+        """这个托管此刻的项目口径（项目服务 ``project_context``：代理、渠道、跟随来源……），每次现读配置。"""
+
+        reply = await service_client("项目口径").call(
+            PROJECT_CONTEXT,
+            project_context_request(
+                record_payload(str(self.script_info.script_id), self.script_config)
+            ),
+        )
+        if reply.failed:
+            raise RuntimeError(reply.message)
+        return reply
 
     async def _release_project_path(self) -> None:
         """交回本账号的项目预约（``project_path.release_run_reservation``）。"""

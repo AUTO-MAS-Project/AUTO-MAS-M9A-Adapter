@@ -49,6 +49,7 @@ from maafw_adapter_kit.backup_archive import (
     archive_mas_runtime_backup,
     archive_native_backup,
 )
+from maafw_adapter_kit.owner_entry import record_payload
 from maafw_adapter_kit.project_texts import BENIGN_SKIPS, SKIP_OCCUPIED
 from maafw_adapter_kit.proxy_quota import proxy_today
 from maafw_adapter_kit.run_messages import update_log_lines
@@ -60,6 +61,8 @@ from maafw_adapter_kit.run_notices import (
 from maafw_adapter_kit.services import (
     AGENT_ENV_RUNTIME_CHECK,
     AGENT_ENV_RUNTIME_ROUTE,
+    PROJECT_CONTEXT,
+    project_context_request,
     runtime_check_request,
 )
 from maafw_adapter_kit.signal_notice import (
@@ -87,7 +90,6 @@ from maafw_project_update.host.project_session import (
     discover_prefetch,
     project_request_from_record,
 )
-from maafw_project_update.host.update_credentials import AutoUpdateMode
 
 from m9a_adapter import config_view
 from m9a_adapter.services import client as service_client
@@ -97,6 +99,9 @@ if TYPE_CHECKING:  # pragma: no cover - 仅供类型检查，运行期不导入 
 
 # 与通用 MFW 的管理器同名：app.log 的检索习惯不变
 logger = get_logger("MFW 内置运行")
+
+#: 项目自动更新的时机（项目服务 ``project_context`` 回的 ``auto_update_mode``）。
+AutoUpdateMode = Literal["Off", "BeforeRun", "AfterRun"]
 
 # 遥测里的专项上报名（telemetry_project.record_project_run）
 _TELEMETRY_SCRIPT_TYPE = "M9A"
@@ -383,6 +388,20 @@ class M9AManager(NotificationTaskBase):
             raise RuntimeError(reply.message)
         return SimpleNamespace(root=Path(reply["root"]), pool_id=reply["pool_id"])
 
+    async def _resolve_auto_update_mode(self) -> AutoUpdateMode:
+        """这个托管的项目自动更新时机（项目服务 ``project_context``，与项目更新自己同一口径）。"""
+
+        assert self.script_config is not None
+        reply = await service_client("项目口径").call(
+            PROJECT_CONTEXT,
+            project_context_request(
+                record_payload(str(self.script_info.script_id), self.script_config)
+            ),
+        )
+        if reply.failed:
+            raise RuntimeError(reply.message)
+        return cast(AutoUpdateMode, reply["auto_update_mode"])
+
     def _build_inner_task(self, route: Any) -> "M9AAccountRun":
         """``route`` 是 :meth:`_runtime_pool_route` 的结果（``root``、``pool_id``）。"""
 
@@ -585,7 +604,7 @@ class M9AManager(NotificationTaskBase):
 
         # 运行前更新：整个脚本一次，在第一位用户的账号任务建起来之前；更新完接着确认运行环境。
         # 账号全都今日代理次数已满时这一轮谁也不会跑：两步都不做、不联网。
-        self._auto_update_mode = config_view.auto_update_mode(self.script_config)
+        self._auto_update_mode = await self._resolve_auto_update_mode()
         today = proxy_today()
         if all(
             config_view.proxy_times_used_up(
