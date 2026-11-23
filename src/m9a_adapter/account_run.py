@@ -5,19 +5,20 @@
 """M9A 一个账号这一轮的运行（账号级流程）。
 
 由 ``manager.M9AManager`` 每个账号建一个、直接调 ``main_task``，收尾经 ``_run_final_task``。
-写法照通用 MFW 的账号流程（``MaaFW/tools/embedded/runner_task``）逐段对应，差别只在 M9A 自己的几步：
+写法照通用 MFW 的账号流程逐段对应，差别只在 M9A 自己的几步：
 
 - 建计划：展开任务快照（``M9A_PLAN_RULES``）→ ``arrange_m9a_queue``（补首尾、切号）→ 按排好的队列建计划；
-- 设备配置（ADB）：解析 adb 路径（宿主没定下路径、有地址时总去问 Toolkit）→ **游戏更新**（每个账号每次
-  运行只查一次）→ **运行前登录**（``login.py``；返回 ``M9AStartupTask`` 时登录交给首任务完成）→ 控制档案；
-  Win32 也调登录（地址为空）；
+- 设备配置（ADB）：解析 adb 路径（运行服务 ``device_adb_path``；宿主没定下路径、有地址时总去问 Toolkit）→
+  **游戏更新**（每个账号每次运行只查一次）→ **运行前登录**（``login.py``；返回 ``M9AStartupTask`` 时登录交给
+  首任务完成）→ 控制档案（``device_adb_config``）；Win32 也调登录（地址为空）；
 - 跑计划：有 ``M9AStartupTask`` 时首任务标「启动游戏失败」即结束本轮、截止时刻放进 ``task_deadlines``，
-  首任务完成才算已登录；
+  首任务完成才算已登录；首任务到了登录时限（运行服务回 ``task_deadline_expired``）翻成原来那句登录失败；
 - 重试：重启客户端时清「已登录」，剔除本次运行已完成的任务用 ``M9A_SKIP_ON_RETRY``。
 
-跑计划、运行前设置、判定、记账、桌面游戏启停、开模拟器、文案与通知正文都调积木（``maafw_runner``、
-``maafw_project_update``）与共用库（``maafw_adapter_kit``）里的叶子，只传普通数据；读写配置一律经 ``config_view``。日志、进度点、历史与通知的先后与通用流程完全相同
-（logger 名、``lease_owner`` 也照旧）。
+桌面游戏启停、设备配置、运行前设置、跑计划经 MFW 运行插件的服务，资源包修复、账号预约与交回、项目口径经
+MFW 项目插件的服务（``services.client``，账号句柄在运行前检查一开头开、收尾最外层关）；判定、记账、开模拟器、
+文案与通知正文调专项共用库（``maafw_adapter_kit``）与两块库，只传普通数据；不导入三块服务插件。读写配置
+一律经 ``config_view``。日志、进度点、历史与通知的先后与通用流程完全相同（logger 名、``lease_owner`` 也照旧）。
 """
 
 from __future__ import annotations
@@ -818,7 +819,7 @@ class M9AAccountRun(TaskExecuteBase):
             and not self.stopped_manually,
         )
         # 收尾一开头专项自己写的账号日志（「已手动停止」）先压住，等运行服务在收尾里第一次发日志、或本次
-        # 历史存完再写进日志记录。账号日志是异步写进记录的：原来收尾里在运行积木真去关游戏、停进程之前
+        # 历史存完再写进日志记录。账号日志是异步写进记录的：原来收尾里在真去关游戏、停进程之前
         # 不让出事件循环，这一行要么随那一刻写进去、要么落在历史之后；收尾改调服务以后每次调用都会
         # 让出，不压住它就总在关游戏之前进历史
         self._held_publishes = []
@@ -1340,7 +1341,7 @@ class M9AAccountRun(TaskExecuteBase):
             task_limit_raw, task_overrides_raw
         )
         # 登录交给首任务完成（M9AStartupTask）：首任务失败即结束本轮，时限截到剩余的登录时限——
-        # 截止时刻交给 plan_run，在下发 job 前一刻换算成秒。
+        # 截止时刻交给运行服务（plan_start 的 task_deadlines），在下发 job 前一刻换算成秒。
         startup = self._startup
         task_deadlines: dict[str, float] = {}
         if startup is not None:
@@ -1393,7 +1394,7 @@ class M9AAccountRun(TaskExecuteBase):
             game_started_at=None if win32 else self._emulator_started_at,
             game_start_disk_quiet=self._disk_quiet,
             game_wait_seconds=config_view.game_wait_time(self.script_config),
-            # worker 的 import_paths 不传：由运行积木按四个包所在目录补（原来交的也是空表）
+            # worker 的 import_paths 不传：由运行服务按几个包所在目录补（原来交的也是空表）
             proxy_url=proxy_url,
             agent_plans=self._worker_agent_plans,
             extra_env=extra_env,
@@ -1430,7 +1431,7 @@ class M9AAccountRun(TaskExecuteBase):
                 self._plan_op = None
         if reply.failed:
             if reply.code == CODE_TASK_DEADLINE_EXPIRED:
-                # 登录交给首任务时，首任务到了登录时限还没完成（原来运行积木抛的那个异常）
+                # 登录交给首任务时，首任务到了登录时限还没完成（原来跑计划抛的那个异常）
                 raise M9ALoginRequired("启动失败：登录时限已耗尽")
             raise reply.failure()
         result = MaaFWRunResult.model_validate(reply["result"])

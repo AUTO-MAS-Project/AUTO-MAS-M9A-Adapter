@@ -361,13 +361,6 @@ def silent_mode() -> bool:
     return bool(Config.setting.Function.IfSilence)
 
 
-def import_paths() -> list[Any]:
-    """worker 的导入路径：插件里交给运行积木自己算（``plan_run`` 用 ``request.import_paths or
-    worker_import_paths()``），这里给空表。"""
-
-    return []
-
-
 def client_version() -> str:
     """建计划时写进 ``PI_CLIENT_VERSION`` 的宿主版本号（解析库改由调用方传）；读不到给空串。"""
 
@@ -551,7 +544,6 @@ __all__ = [
     "game_update_mode",
     "game_wait_time",
     "hotkeys_raw",
-    "import_paths",
     "is_m9a_script",
     "last_proxy_date",
     "login_mode",

@@ -4,15 +4,16 @@
 
 """M9A 托管的脚本级流程（管理器）。
 
-写法照通用 MFW 的管理器（``MaaFW/embedded_manager``）逐段对应：运行前检查（打开项目、拿 X 锁、筛账号、
-运行池自检）→ 运行前更新与运行环境确认 → 逐个账号建 ``account_run.M9AAccountRun`` 直接调 ``main_task`` →
-收尾（保存账号配置并解锁、收尾项目、信号通知、代理结果）。差别只在：只认确切类型 ``M9AConfig``；项目会话
-的请求经 M9A 自己的属主入口 ``read_managed`` 取记录组装（属主名 ``m9a_adapter``）；遥测的上报名是 ``M9A``。
+写法照通用 MFW 的管理器逐段对应：运行前检查（打开项目、拿 X 锁、筛账号、运行池自检）→ 运行前更新与运行
+环境确认 → 逐个账号建 ``account_run.M9AAccountRun`` 直接调 ``main_task`` → 收尾（保存账号配置并解锁、收尾
+项目、信号通知、代理结果）。差别只在：只认确切类型 ``M9AConfig``；交给项目服务的托管记录经 M9A 自己的属主
+（``plugin.OWNER``，属主名 ``m9a_adapter``）现读，读不到按托管已被删处理；遥测的上报名是 ``M9A``。
 
 X 锁照旧直接 ``try_lock_x()``，不走 ``lock_script_config``；拿到锁、确认有可运行账号后照通用 MFW 调 L2 挂的
 ``after_config_lock``（选定游戏会话、复查预下载），账号循环里再按账号选定、跑完交回账号覆盖的目标。
-项目会话、运行池路由与自检、归档、遥测、通知正文都调积木与共用库（``maafw_adapter_kit``）里的叶子；读写配置一律经
-``config_view``。账号流程模块经 runner 包 import maa（导入即打开 DLL），只在账号开跑前延迟导入。
+打开项目、更新、环境确认、收尾项目、发现更新经 MFW 项目插件的服务，运行池路由与运行环境自检经 MFW agent
+环境插件的服务（``services.client``）；归档、遥测、通知正文调专项共用库（``maafw_adapter_kit``）；不导入三块
+服务插件。读写配置一律经 ``config_view``。账号流程模块只在账号开跑前延迟导入。
 """
 
 from __future__ import annotations
@@ -411,7 +412,7 @@ class M9AManager(NotificationTaskBase):
     def _build_inner_task(self, route: Any) -> "M9AAccountRun":
         """``route`` 是 :meth:`_runtime_pool_route` 的结果（``root``、``pool_id``）。"""
 
-        # 延迟导入：账号流程经 runner 包 import maa，导入即打开 DLL。
+        # 延迟导入：账号流程只在账号开跑前才用到。
         from m9a_adapter.account_run import M9AAccountRun
 
         assert self.script_config is not None
@@ -432,7 +433,7 @@ class M9AManager(NotificationTaskBase):
         return task
 
     # ------------------------------------------------------------------
-    # 项目会话
+    # 项目服务（打开 / 更新 / 环境确认 / 收尾 / 发现更新）
     # ------------------------------------------------------------------
 
     @staticmethod

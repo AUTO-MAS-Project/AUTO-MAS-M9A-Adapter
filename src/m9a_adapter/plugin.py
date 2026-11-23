@@ -9,9 +9,9 @@
 属主是新形：本插件提供 ``maafw.owner.m9a_adapter.v1`` 下的 8 个属主操作（共用库 ``OwnerServiceMixin``），
 启用时经项目服务 ``owner_register`` 登记。
 
-规则 L：本模块和它顶层的整条导入链里不出现别的插件包（三块积木、另外两个专项）；跨插件的导入
-都写在函数体内。两块库（``maafw_interface``、``maafw_native``）与专项共用库（``maafw_adapter_kit``）
-不是插件，不受此限。
+规则 L：本包任何位置（含函数体内）都不导入别的插件包（三块服务插件、通用 MFW、MSS）；要它们做的事一律经
+服务调（``services.client``）。两块库（``maafw_interface``、``maafw_native``）与专项共用库
+（``maafw_adapter_kit``）不是插件。
 """
 
 from __future__ import annotations
