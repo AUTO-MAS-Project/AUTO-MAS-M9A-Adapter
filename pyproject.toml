@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "auto-mas-m9a-adapter"
-version = "0.3.0"
+version = "0.3.1"
 description = "M9A specialized script adapter for AUTO-MAS"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
@@ -23,7 +23,7 @@ dependencies = [
     "auto-mas-maafw-agent-env>=0.3.0",
     "auto-mas-maafw-runner>=0.3.0",
     "auto-mas-maafw-project-update>=0.3.0",
-    "auto-mas-maafw-adapter-kit>=0.3.0,<0.4",
+    "auto-mas-maafw-adapter-kit>=0.3.1,<0.4",
 ]
 
 [project.urls]
