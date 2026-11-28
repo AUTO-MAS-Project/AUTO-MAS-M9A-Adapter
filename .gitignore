@@ -8,5 +8,4 @@ __pycache__/
 build/
 dist/
 /debug/
-# 单元测试只留本地，不提交
-/tests/
+/frontend/node_modules/

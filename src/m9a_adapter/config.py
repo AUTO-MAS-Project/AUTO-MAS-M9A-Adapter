@@ -20,7 +20,14 @@ from datetime import datetime
 from pathlib import Path as NativePath
 from typing import Annotated, ClassVar, Literal, Self, cast
 
-from auto_mas_core import ScriptAdapterPlugin, ScriptEntry, UserEntry
+from auto_mas_core import (
+    DeclarativeBlock,
+    HostBlock,
+    PluginBlock,
+    ScriptAdapterPlugin,
+    ScriptEntry,
+    UserEntry,
+)
 from auto_mas_core.host.config import (
     ConfigCollection,
     ConfigEntry,
@@ -81,8 +88,14 @@ class M9AUserConfig(UserEntry):
     「切换账号」任务（见 ``arrange.arrange_m9a_queue``）。
     """
 
+    ui_blocks = (
+        HostBlock("config_restore"),
+        DeclarativeBlock(("Info",)),
+        PluginBlock("user", fallback_groups=("Task", "Device")),
+        DeclarativeBlock(("Notify",)),
+        HostBlock("webhooks"),
+    )
     related_config: ClassVar = {}
-
 
     class DataFields(AccountRunFields, AccountRunStatusFields):
         PeriodTaskRecords: JsonDictString = Field(
@@ -116,7 +129,7 @@ class M9AUserConfig(UserEntry):
     class InfoFields(AccountNameFields, AccountScriptHookFields):
         Id: Annotated[str, legacy(group="Info", name="Account"), encrypted()] = Field(
             default_factory=lambda: "",
-            description="账号信息，仅用于 AUTO-MAS 记录，不自动传入 MaaFW 任务",
+            description="由 M9A 登录时填游戏账号；由 MAS 登录 B 服时填登录记录里的完整昵称",
         )
 
         Password: Annotated[str, encrypted()] = Field(
@@ -246,6 +259,11 @@ class M9AConfig(ScriptEntry):
     DEFAULT_SCRIPT_NAME: ClassVar = "新 M9A 托管"
     USER_CONFIG_CLASS: ClassVar = M9AUserConfig
     DEFAULT_TASK_TIME_LIMIT_OVERRIDES: ClassVar = _M9A_TASK_TIME_LIMIT_OVERRIDES
+    ui_blocks = (
+        PluginBlock("script", fallback_groups=("Info", "Embedded", "Device", "Game", "Run")),
+        HostBlock("game_binding"),
+        DeclarativeBlock(("Update",)),
+    )
 
     class DeviceFields(ConfigGroup):
         AdbAddress: str = Field(
