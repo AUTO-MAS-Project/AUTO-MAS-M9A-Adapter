@@ -16,12 +16,11 @@
 
 from __future__ import annotations
 
-import dataclasses
-from collections.abc import Callable
 from typing import Any
 
 from auto_mas_core import Config, ScriptAdapterPlugin, ScriptTypeDecl, TaskMode
 from auto_mas_core.host.utils import get_logger
+from fastapi import APIRouter
 from maafw_adapter_kit.owner_entry import (
     ConfigOwner,
     OwnerServiceMixin,
@@ -38,6 +37,8 @@ from maafw_adapter_kit.services import (
 from . import lifecycle
 from .config import M9AConfig, M9AUserConfig
 from .expander import M9AExpander, _prefetch_check, active_runs
+from .panel_api import router as panel_router
+from .restore import RESTORE_POOLS
 from .rules import M9A_PLAN_RULES
 from .services import PLUGIN_ID, REQUIRES, SLOT, client
 
@@ -68,16 +69,6 @@ def _project_mismatch(interface: Any) -> str | None:
     return f"这不是 {TYPE_KEY} 项目。要用别的项目，请新建通用 MFW 托管。"
 
 
-def _optional_decl_fields(**fields: Callable[..., Any]) -> dict[str, Any]:
-    """``ScriptTypeDecl`` 里较新的可选项（按配置判定游戏类型、桌面分身）：宿主的声明类有这一项才传。
-
-    同一个 SDK 版本号同时出现在带与不带这些出口的宿主上，没法靠依赖下限区分；旧宿主上不传，行为同 0.1.0。
-    """
-
-    known = {field.name for field in dataclasses.fields(ScriptTypeDecl)}
-    return {name: value for name, value in fields.items() if name in known}
-
-
 #: 本插件名下托管的属主：项目服务经属主服务现取，按确切类型认领 ``M9AConfig``；带 M9A 的建计划规则表与
 #: 「不是 M9A 项目」的拒收原因。管理器本地读写本托管的项目记录也经它（``manager._owner_entry``）
 OWNER = ConfigOwner(
@@ -87,12 +78,18 @@ OWNER = ConfigOwner(
     project_mismatch=_project_mismatch,
 )
 
+router = APIRouter()
+router.include_router(
+    panel_router, prefix=f"/api/plugin/{PLUGIN_ID}", include_in_schema=False
+)
+
 
 class Plugin(OwnerServiceMixin, ScriptAdapterPlugin):
     script_type_key = "M9A"
     requires = REQUIRES
     provides_services = owner_provides(M9A_OWNER)
     owner_entry = OWNER
+    api_router = router
     decl = ScriptTypeDecl(
         script_type=M9AConfig,
         user_type=M9AUserConfig,
@@ -103,10 +100,10 @@ class Plugin(OwnerServiceMixin, ScriptAdapterPlugin):
         game_kinds=("emulator", "client"),
         supports_mod_avd=True,
         activity_game="reverse1999",
-        **_optional_decl_fields(
-            game_kind=lifecycle.game_kind,
-            desktop_session=lifecycle.desktop_session,
-        ),
+        game_kind=lifecycle.game_kind,
+        desktop_session=lifecycle.desktop_session,
+        restore_pools=RESTORE_POOLS,
+        first_account_mode="wizard",
     )
 
     async def pre_enable(self) -> None:

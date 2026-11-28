@@ -11,7 +11,7 @@
 整理的口径是 ``managed.py`` 的规则（实现在 ``arrange.settle_m9a_snapshot``），这里只是外壳：从配置里取出
 interface、生效的资源名、登录方式和账号 ``Info``，调它，再把结果并回要写的数据。配置一律经 ``config_view`` 读写。
 
-配置备份的恢复池仍不带（SDK 没有插件恢复池的出口），原来的 ``M9A_RESTORE_POOLS``、``restore_m9a_mas`` 不搬。
+配置恢复通过 ``restore`` 登记的备份池进入同一账号更新流程。
 """
 
 from __future__ import annotations

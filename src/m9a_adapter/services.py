@@ -6,15 +6,16 @@
 
 :data:`SLOT` 是本包模块级的服务槽：插件 ``on_enable`` 绑宿主给的解析器、``on_disable`` 解；管理器、
 账号流程、外壳手里没有插件实例，经 :func:`client` 从槽里现取服务。:data:`REQUIRES` 是插件的
-``requires``（共用库的操作名常量拼成，MFW 服务化实施方案附录 D：三个专项共有的 70 个加外壳看项目
-在不在更新要的 ``project_peek``）。
+``requires``（三个专项共有的操作，加项目更新状态查询和外壳导入所需的操作）。
 
 本模块只导入专项共用库，不导入三块服务插件（规则 L）。
 """
 
 from maafw_adapter_kit.services import (
     ADAPTER_REQUIRES,
+    PROJECT_MANAGED_FIND,
     PROJECT_PEEK_OPS,
+    SHELL_IMPORT_OPS,
     ServiceClient,
     ServiceSlot,
 )
@@ -24,8 +25,11 @@ PLUGIN_ID = "m9a_adapter"
 #: 本插件的服务槽（插件启用时绑、停用时解）。
 SLOT = ServiceSlot(PLUGIN_ID)
 
-#: 插件 ``requires``：三个专项共有的 70 个操作名，加 M9A 外壳要的 ``project_peek``（共 71 个）。
-REQUIRES = (*ADAPTER_REQUIRES, *PROJECT_PEEK_OPS)
+REQUIRES = (
+    *ADAPTER_REQUIRES,
+    *PROJECT_PEEK_OPS,
+    *(operation for operation in SHELL_IMPORT_OPS if operation != PROJECT_MANAGED_FIND),
+)
 
 
 def client(caller: str = "") -> ServiceClient:
